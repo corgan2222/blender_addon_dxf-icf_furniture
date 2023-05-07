@@ -1,6 +1,9 @@
 # blender_addon_dxf-icf_furniture
 A Blender Addon which creates tables and chairs automaticly based on the position in the dxf.
 
+![ESEC Addon Screenshot](https://raw.githubusercontent.com/corgan2222/blender_addon_dxf-icf_furniture/main/img/blender_dxf-ifc.png)
+
+
 ## Features
 
 * Import DXF and IFC files with a single click
