@@ -1,7 +1,7 @@
 bl_info = {
-    "name": "ESEC DXF-IFC Floorplan Tool",
+    "name": "ESEC DXF-IFC 3D Floorplan Tool",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 2),
+    "version": (1, 3),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Create furniture like tables and chairs from a DXF plan, exported from Archiologic.",
@@ -13,6 +13,46 @@ bl_info = {
 import bpy
 import os
 from mathutils import Vector
+
+def detect_shape(ob):
+    # Get the curve data from the object
+    curve = ob.data
+    
+    # Count the number of points in the first spline of the curve
+    num_points = len(curve.splines[0].bezier_points) if curve.splines[0].type == 'BEZIER' else len(curve.splines[0].points)
+    
+    # Basic shape detection based on point count
+    if num_points == 4:
+        return 'square', num_points
+    elif num_points > 4:
+        # Further refine the detection to check if it's a circle
+        # Calculate the distance from each point to the object's center
+        # If the distances are approximately equal, it's a circle
+        center = ob.location
+        if curve.splines[0].type == 'BEZIER':
+            distances = [((p.co.x - center.x)**2 + (p.co.y - center.y)**2)**0.5 for p in curve.splines[0].bezier_points]
+        else:
+            distances = [((p.co.x - center.x)**2 + (p.co.y - center.y)**2)**0.5 for p in curve.splines[0].points]
+        average_distance = sum(distances) / len(distances)
+        if all(math.isclose(d, average_distance, rel_tol=0.1) for d in distances):
+            return 'circle', num_points
+    return 'unknown', num_points
+
+# # Check the collection named 'dxf'
+# dxf_collection = bpy.data.collections.get('dxf')
+
+# if dxf_collection:
+#     # Test the function
+#     for ob in dxf_collection.objects:
+#         if ob.type == 'CURVE' and 'Chair' in ob.name:
+#             shape, num_points = detect_shape(ob)
+#             print(f"Objectname: {ob.name} - Shape: {shape} - Points: {num_points}")
+# else:
+#     print("Collection 'dxf' not found")
+
+#Objectname: TaskChair.159 - Shape: circle - Points: 72
+#Objectname: ConferenceChair.001 - Shape: circle - Points: 30
+#Objectname: OutdoorChair.002 - Shape: circle - Points: 20
 
 def move_objects_to_dxf():
     # Create the 'dxf' collection if it doesn't exist
@@ -38,7 +78,7 @@ def delete_unwanted_objects(collection_name):
         print(f"Collection '{collection_name}' not found.")
         return
 
-    allowed_keywords = ['Desk', 'Chair', 'chair', 'Sofa', 'Table']
+    allowed_keywords = ['Desk', 'Chair', 'chair', 'Sofa', 'Table', 'Storage', 'Sideboard', 'Bed', 'Stool', 'Printer']
     objects_to_delete = []
 
     # Find objects to delete
@@ -201,8 +241,53 @@ def create_stools_from_dxf_collection():
     else:
         print("Collection 'dxf' not found.")
 
+#########################################
+
+def create_squares_from_dxf_object(obj, needle, scaleZ):
+    # Calculate the bounding box dimensions for the object
+    bbox_corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+    bbox_dimensions = Vector((max(corner[i] for corner in bbox_corners) - min(corner[i] for corner in bbox_corners) for i in range(3)))
+    
+    width, depth, _ = bbox_dimensions
+    #height = 0.8
+    height = bpy.context.scene.esec_addon_props.table_height
+    bpy.ops.mesh.primitive_cube_add(size=1)
+    table_top = bpy.context.active_object
+    table_top.name = obj.name + "_" + needle
+    
+    # Set the scale of the table_top based on the bounding box dimensions
+    table_top.scale.x = width 
+    table_top.scale.y = depth 
+    table_top.scale.z = scaleZ
+    
+
+    table_top.location = obj.location
+    table_top.location.z = height - 0.025 / 2
+    
+    # Ensure the 'furniture' collection exists
+    furniture_collection = bpy.data.collections.get(needle)
+    if not furniture_collection:
+        furniture_collection = bpy.data.collections.new(needle)
+        bpy.context.scene.collection.children.link(furniture_collection)
+
+    # Link the new table object to the 'furniture' collection and unlink it from the current collection
+    current_collection = table_top.users_collection[0]
+    current_collection.objects.unlink(table_top)
+    furniture_collection.objects.link(table_top)    
 
 
+def create_squares_from_dxf_collection(needle, scaleZ):
+    dxf_collection = bpy.data.collections.get("dxf")
+    if dxf_collection:
+        for obj in dxf_collection.objects:
+            if needle in obj.name:
+                create_squares_from_dxf_object(obj, needle, scaleZ)
+    else:
+        print("Collection 'dxf' not found.")
+
+
+
+######################################################################################################
 # Function definitions
 def function_1(self, context):
     print("Step 1 - prepare DXF")
@@ -365,6 +450,27 @@ class EsecSubmenu(bpy.types.Menu):
         layout.operator(OBJECT_OT_DeleteDxfCollection.bl_idname)
         layout.operator(OBJECT_OT_DeleteFurnitureCollection.bl_idname)
 
+
+class ESEC_OT_create_storage(bpy.types.Operator):
+    bl_idname = "esec.create_storage"
+    bl_label = "Create Storage"
+
+    def execute(self, context):
+        print("Create Storage")
+        create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
+        print("Create Storage done")
+        return {'FINISHED'}
+
+class ESEC_OT_create_sideboard(bpy.types.Operator):
+    bl_idname = "esec.create_sideboard"
+    bl_label = "Create Sideboard"
+
+    def execute(self, context):
+        print("Create sideboards")
+        create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height)    
+        print("Create sideboards done")
+        return {'FINISHED'}
+
 class ESECAddonProperties(bpy.types.PropertyGroup):
     table_height: bpy.props.FloatProperty(
         name="Table Height",
@@ -388,13 +494,30 @@ class ESECAddonProperties(bpy.types.PropertyGroup):
         max=10.0
     )    
 
+    storage_height: bpy.props.FloatProperty(
+        name="Storage Scale Z",
+        description="Height for storage",
+        default=1.6,
+        min=0.1,
+        max=2
+    )    
+
+    sideboard_height: bpy.props.FloatProperty(
+        name="Sideboard Scale Z",
+        description="Height for Sideboard",
+        default=0.2,
+        min=0.1,
+        max=2
+    )    
+
+
 # Panel class
 class ESEC_PT_panel(bpy.types.Panel):
-    bl_label = "ESEC Panel"
+    bl_label = "ESEC 3D Floorplan Creator v" + str(bl_info['version'])
     bl_idname = "ESEC_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ESEC'
+    bl_category = 'ESEC 3D Floorplan'
 
     def draw(self, context):
         layout = self.layout
@@ -418,6 +541,14 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout.prop(props, "table_height", text="Table Height")
         layout.prop(props, "chair_height", text="Chair Height")  
         layout.prop(props, "stool_scale", text="Chairs Scale")        
+        layout.prop(props, "storage_height", text="Storage Height")        
+        layout.prop(props, "sideboard_height", text="Sideboard Height")        
+        layout.separator()
+        layout.separator()
+        layout.operator("esec.create_storage", icon="FILE_3D")
+        layout.operator("esec.create_sideboard", icon="FILE_3D")
+
+
 
 addon_keymaps = []
 
@@ -438,6 +569,8 @@ def register():
     bpy.utils.register_class(OBJECT_OT_DeleteIfcCollection)
     bpy.utils.register_class(OBJECT_OT_DeleteDxfCollection)
     bpy.utils.register_class(OBJECT_OT_DeleteFurnitureCollection)
+    bpy.utils.register_class(ESEC_OT_create_storage)
+    bpy.utils.register_class(ESEC_OT_create_sideboard)
 
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
@@ -473,6 +606,14 @@ def unregister():
     bpy.utils.unregister_class(OBJECT_OT_DeleteIfcCollection)
     bpy.utils.unregister_class(OBJECT_OT_DeleteDxfCollection)
     bpy.utils.unregister_class(OBJECT_OT_DeleteFurnitureCollection)
+    bpy.utils.unregister_class(ESEC_OT_create_storage)
+    bpy.utils.unregister_class(ESEC_OT_create_sideboard)
 
 if __name__ == "__main__":
     register()
+
+
+
+
+# Squarae 
+#   Storage 

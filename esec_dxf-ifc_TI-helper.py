@@ -1,10 +1,10 @@
 bl_info = {
-    "name": "ESEC DXF-IFC Floorplan Tool",
+    "name": "ESEC ICF-TI Helper",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 2),
+    "version": (1, 3),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar > ESEC Tab",
-    "description": "Create furniture like tables and chairs from a DXF plan, exported from Archiologic.",
+    "description": "Rename IFC Space based on DXF roomnames",
     "warning": "",
     "doc_url": "https://github.com/corgan2222/blender_addon_dxf-icf_furniture",
     "category": "3D View",
@@ -289,7 +289,7 @@ class ESEC_OT_RenameSpaces(bpy.types.Operator):
 
 
 class ESEC_PT_MainPanel(bpy.types.Panel):
-    bl_label = "ESEC IFC-TI Helper"
+    bl_label = "ESEC IFC-TI Helper v"+ str(bl_info['version'])
     bl_idname = "ESEC_PT_MainPanel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
