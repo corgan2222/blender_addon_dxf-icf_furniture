@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC DXF-IFC 3D Floorplan Tool",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 4),
+    "version": (1, 4, 1),
     "blender": (3, 5, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Create furniture like tables and chairs from a DXF plan, exported from Archiologic.",
@@ -156,8 +156,7 @@ def create_tabletop_square_from_object(obj):
     bbox_dimensions = Vector((max(corner[i] for corner in bbox_corners) - min(corner[i] for corner in bbox_corners) for i in range(3)))
     
     width, depth, _ = bbox_dimensions
-    #height = 0.8
-    height = bpy.context.scene.esec_addon_props.table_height
+    height = bpy.context.scene.esec_addon_props.table_height #def height = 0.8
     bpy.ops.mesh.primitive_cube_add(size=1)
     table_top = bpy.context.active_object
     table_top.name = obj.name + "_TableTop"
@@ -172,23 +171,21 @@ def create_tabletop_square_from_object(obj):
 
     # Rotate the new object to match the source object
     # 1.5708 = 90 degrees
-    # 0.1553 = 8.9 degrees
-    # 4.7124 = 270 degrees
     # 3.142 = 180 degrees
+    # 4.7124 = 270 degrees   
 
     rotation_euler = round(obj.rotation_euler[2], 3)
-    if rotation_euler != 1.571 and rotation_euler != -1.571 \
-        and rotation_euler != 4.712 and rotation_euler != 0.0 \
-        and rotation_euler != 3.142 : 
-        print(rotation_euler)
-        print(round(obj.rotation_euler[2], 4))
-        table_top.rotation_euler = obj.rotation_euler  
-        
+    allowed_rotations = [1.571, -1.571, 3.142, -3.142, 4.712, -4.712, 0.0]
+
+    if rotation_euler not in allowed_rotations:
+        #print(rotation_euler)
+        #print(round(obj.rotation_euler[2], 4))
+        table_top.rotation_euler = obj.rotation_euler   
     
     # Ensure the 'furniture' collection exists
-    furniture_collection = bpy.data.collections.get("furniture")
+    furniture_collection = bpy.data.collections.get("tables")
     if not furniture_collection:
-        furniture_collection = bpy.data.collections.new("furniture")
+        furniture_collection = bpy.data.collections.new("tables")
         bpy.context.scene.collection.children.link(furniture_collection)
 
     # Link the new table object to the 'furniture' collection and unlink it from the current collection
@@ -196,7 +193,31 @@ def create_tabletop_square_from_object(obj):
     current_collection.objects.unlink(table_top)
     furniture_collection.objects.link(table_top)    
 
+def create_tabletop_rounds_from_object(obj):
+    # Calculate the bounding box dimensions for the object
+    bbox_corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+    bbox_dimensions = Vector((max(corner[i] for corner in bbox_corners) - min(corner[i] for corner in bbox_corners) for i in range(3)))
 
+    width, depth, _ = bbox_dimensions
+    radius = max(width, depth) / 2  # Use the longer dimension as diameter
+    height = bpy.context.scene.esec_addon_props.table_height
+    bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=0.025)
+    table_top = bpy.context.active_object
+    table_top.name = obj.name + "_TableTop"
+
+    table_top.location = obj.location
+    table_top.location.z = height - 0.025 / 2
+
+    # Ensure the 'furniture' collection exists
+    furniture_collection = bpy.data.collections.get("tables")
+    if not furniture_collection:
+        furniture_collection = bpy.data.collections.new("tables")
+        bpy.context.scene.collection.children.link(furniture_collection)
+
+    # Link the new table object to the 'furniture' collection and unlink it from the current collection
+    current_collection = table_top.users_collection[0]
+    current_collection.objects.unlink(table_top)
+    furniture_collection.objects.link(table_top)
 
 
 def create_tabletops_from_dxf_collection():
@@ -207,10 +228,11 @@ def create_tabletops_from_dxf_collection():
                 if obj.type == 'CURVE':
                     shape, num_points = detect_shape(obj)
                     if shape == 'square':
-                        print(f"square: {obj.name} - Shape: {shape} - Points: {num_points}")
+                        #print(f"square: {obj.name} - Shape: {shape} - Points: {num_points}")
                         create_tabletop_square_from_object(obj)
                     else:
-                        print(f"circle: {obj.name} - Shape: {shape} - Points: {num_points}")    
+                        #print(f"circle: {obj.name} - Shape: {shape} - Points: {num_points}")    
+                        create_tabletop_rounds_from_object(obj)
     else:
         print("Collection 'dxf' not found.")
 
@@ -228,9 +250,9 @@ def create_stool_from_object(obj, furniture_collection):
     
     
     # Ensure the 'furniture' collection exists
-    furniture_collection = bpy.data.collections.get("furniture")
+    furniture_collection = bpy.data.collections.get("chairs")
     if not furniture_collection:
-        furniture_collection = bpy.data.collections.new("furniture")
+        furniture_collection = bpy.data.collections.new("chairs")
         bpy.context.scene.collection.children.link(furniture_collection)
 
     # Link the new stool object to the 'furniture' collection and unlink it from the current collection
@@ -243,9 +265,9 @@ def create_stools_from_dxf_collection():
     dxf_collection = bpy.data.collections.get("dxf")
     if dxf_collection:
         # Create a new collection called "furniture" if it doesn't exist
-        furniture_collection = bpy.data.collections.get("furniture")
+        furniture_collection = bpy.data.collections.get("chairs")
         if not furniture_collection:
-            furniture_collection = bpy.data.collections.new("furniture")
+            furniture_collection = bpy.data.collections.new("chairs")
             bpy.context.scene.collection.children.link(furniture_collection)
         
         for obj in dxf_collection.objects:
