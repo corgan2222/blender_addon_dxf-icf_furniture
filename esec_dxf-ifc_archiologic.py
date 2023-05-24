@@ -13,6 +13,7 @@ bl_info = {
 import bpy
 import os
 import math
+import os
 from mathutils import Vector
 
 def detect_shape(ob):
@@ -319,6 +320,43 @@ def create_squares_from_dxf_collection(needle, scaleZ):
     else:
         print("Collection 'dxf' not found.")
 
+def create_chairs_from_dxf_collection(needle):
+
+    #TODO load from local disc instead of having a fixed path
+    #file_loc = bpy.ops.import_scene.obj('INVOKE_DEFAULT')
+    file_loc = bpy.path.abspath("//models\\office_chair.obj")
+    imported_object = bpy.ops.import_scene.obj(filepath=file_loc)
+    selected_obj = bpy.context.selected_objects[0]
+    
+        
+    chair_collection = bpy.data.collections.get("chairs")
+    if not chair_collection:
+        chair_collection = bpy.data.collections.new("chairs")
+        bpy.context.scene.collection.children.link(chair_collection)
+       
+
+    dxf_collection = bpy.data.collections.get("dxf")
+    if dxf_collection:
+        for obj in dxf_collection.objects:
+            if needle.lower() in obj.name.lower():
+                #selected_obj.copy() to create a real copy, otherwise it would be just a reference to the imported model
+                create_chair_from_dxf_object(obj,selected_obj.copy(),chair_collection)
+    else:
+        print("Collection 'dxf' not found.")
+
+    #cleanup first imported model from 0 0 0 position
+    bpy.data.objects.remove(selected_obj, do_unlink=True)
+
+
+
+def create_chair_from_dxf_object(dxf_obj,obj_model, collection_to_add_to):
+
+    print('create_chair_from_dxf_object: dxf_obj.location: ', dxf_obj.location)
+    obj_model.location = dxf_obj.location
+    obj_model.rotation_euler[2] = dxf_obj.rotation_euler[2]
+    collection_to_add_to.objects.link(obj_model)
+
+
 
 
 ######################################################################################################
@@ -342,7 +380,7 @@ def function_3(self, context):
     create_tabletops_from_dxf_collection()    
     print("Step 3 done")
 
-def function_4(self, context):
+def create_simple_chairs(self, context):
     print("Step 4 - create stools")
     create_stools_from_dxf_collection()
     print("Step 4 done")
@@ -424,12 +462,22 @@ class ESEC_OT_function_3(bpy.types.Operator):
         function_3(self, context)
         return {'FINISHED'}
 
-class ESEC_OT_function_4(bpy.types.Operator):
-    bl_idname = "esec.function_4"
-    bl_label = "Step 4 - Create chairs"
+class ESEC_OT_create_simple_chairs(bpy.types.Operator):
+    bl_idname = "esec.create_simple_chairs"
+    bl_label = "Step 4a - Create simple chairs"
 
     def execute(self, context):
-        function_4(self, context)
+        create_simple_chairs(self, context)
+        return {'FINISHED'}
+    
+class ESEC_OT_create_3d_chairs(bpy.types.Operator):
+    bl_idname = "esec.create_3d_chairs"
+    bl_label = "Step 4b - Create 3D Chairs"
+
+    def execute(self, context):
+        print("Create 3d chairs")
+        create_chairs_from_dxf_collection('chair')    
+        print("Create 3d chairs done")
         return {'FINISHED'}
 
 class ESEC_OT_function_5(bpy.types.Operator):
@@ -563,7 +611,8 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout.operator("esec.function_1", icon="FILE_VOLUME")
         layout.operator("esec.function_2", icon="FILE_3D")
         layout.operator("esec.function_3", icon="SNAP_VERTEX")
-        layout.operator("esec.function_4", icon="OUTLINER_OB_POINTCLOUD")
+        layout.operator("esec.create_simple_chairs", icon="OUTLINER_OB_POINTCLOUD")
+        layout.operator("esec.create_3d_chairs", icon="OUTLINER_OB_POINTCLOUD")
         layout.separator()
         layout.operator("esec.function_5", icon="HAND")
         layout.separator()        
@@ -592,7 +641,8 @@ def register():
     bpy.utils.register_class(ESEC_OT_function_1)
     bpy.utils.register_class(ESEC_OT_function_2)
     bpy.utils.register_class(ESEC_OT_function_3)
-    bpy.utils.register_class(ESEC_OT_function_4)
+    bpy.utils.register_class(ESEC_OT_create_simple_chairs)
+    bpy.utils.register_class(ESEC_OT_create_3d_chairs)
     bpy.utils.register_class(ESEC_OT_function_5)
     bpy.utils.register_class(ESEC_PT_panel)
     bpy.utils.register_class(EsecSubmenu)
@@ -613,7 +663,7 @@ def register():
         kmi = km.keymap_items.new(ESEC_OT_function_1.bl_idname, type='A', value='PRESS', alt=True, shift=True)
         kmi = km.keymap_items.new(ESEC_OT_function_2.bl_idname, type='B', value='PRESS', alt=True, shift=True)
         kmi = km.keymap_items.new(ESEC_OT_function_3.bl_idname, type='C', value='PRESS', alt=True, shift=True)
-        kmi = km.keymap_items.new(ESEC_OT_function_4.bl_idname, type='D', value='PRESS', alt=True, shift=True)
+        kmi = km.keymap_items.new(ESEC_OT_create_simple_chairs.bl_idname, type='D', value='PRESS', alt=True, shift=True)
         kmi = km.keymap_items.new(ESEC_OT_function_5.bl_idname, type='E', value='PRESS', alt=True, shift=True)
         kmi = km.keymap_items.new(IMPORT_OT_dxf.bl_idname, 'D', 'PRESS', alt=True, shift=True)
         kmi = km.keymap_items.new(IMPORT_OT_ifc.bl_idname, 'I', 'PRESS', alt=True, shift=True)
@@ -629,7 +679,8 @@ def unregister():
     bpy.utils.unregister_class(ESEC_OT_function_1)
     bpy.utils.unregister_class(ESEC_OT_function_2)
     bpy.utils.unregister_class(ESEC_OT_function_3)
-    bpy.utils.unregister_class(ESEC_OT_function_4)
+    bpy.utils.unregister_class(ESEC_OT_create_simple_chairs)
+    bpy.utils.unregister_class(ESEC_OT_create_3d_chairs)
     bpy.utils.unregister_class(ESEC_OT_function_5)
     bpy.utils.unregister_class(IMPORT_OT_dxf)
     bpy.utils.unregister_class(IMPORT_OT_ifc)
