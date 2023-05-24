@@ -1,8 +1,8 @@
 bl_info = {
     "name": "ESEC DXF-IFC 3D Floorplan Tool",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 3),
-    "blender": (2, 80, 0),
+    "version": (1, 4),
+    "blender": (3, 5, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Create furniture like tables and chairs from a DXF plan, exported from Archiologic.",
     "warning": "",
@@ -12,9 +12,15 @@ bl_info = {
 
 import bpy
 import os
+import math
 from mathutils import Vector
 
 def detect_shape(ob):
+
+    #Objectname: TaskChair.159 - Shape: circle - Points: 72
+    #Objectname: ConferenceChair.001 - Shape: circle - Points: 30
+    #Objectname: OutdoorChair.002 - Shape: circle - Points: 20
+
     # Get the curve data from the object
     curve = ob.data
     
@@ -37,22 +43,6 @@ def detect_shape(ob):
         if all(math.isclose(d, average_distance, rel_tol=0.1) for d in distances):
             return 'circle', num_points
     return 'unknown', num_points
-
-# # Check the collection named 'dxf'
-# dxf_collection = bpy.data.collections.get('dxf')
-
-# if dxf_collection:
-#     # Test the function
-#     for ob in dxf_collection.objects:
-#         if ob.type == 'CURVE' and 'Chair' in ob.name:
-#             shape, num_points = detect_shape(ob)
-#             print(f"Objectname: {ob.name} - Shape: {shape} - Points: {num_points}")
-# else:
-#     print("Collection 'dxf' not found")
-
-#Objectname: TaskChair.159 - Shape: circle - Points: 72
-#Objectname: ConferenceChair.001 - Shape: circle - Points: 30
-#Objectname: OutdoorChair.002 - Shape: circle - Points: 20
 
 def move_objects_to_dxf():
     # Create the 'dxf' collection if it doesn't exist
@@ -160,7 +150,7 @@ def remove_window_objects(collection_name):
             bpy.data.objects.remove(obj, do_unlink=True)
             print(f"Removed object: {obj_name}")
 
-def create_tabletop_from_object(obj):
+def create_tabletop_square_from_object(obj):
     # Calculate the bounding box dimensions for the object
     bbox_corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
     bbox_dimensions = Vector((max(corner[i] for corner in bbox_corners) - min(corner[i] for corner in bbox_corners) for i in range(3)))
@@ -179,6 +169,21 @@ def create_tabletop_from_object(obj):
     
     table_top.location = obj.location
     table_top.location.z = height - 0.025 / 2
+
+    # Rotate the new object to match the source object
+    # 1.5708 = 90 degrees
+    # 0.1553 = 8.9 degrees
+    # 4.7124 = 270 degrees
+    # 3.142 = 180 degrees
+
+    rotation_euler = round(obj.rotation_euler[2], 3)
+    if rotation_euler != 1.571 and rotation_euler != -1.571 \
+        and rotation_euler != 4.712 and rotation_euler != 0.0 \
+        and rotation_euler != 3.142 : 
+        print(rotation_euler)
+        print(round(obj.rotation_euler[2], 4))
+        table_top.rotation_euler = obj.rotation_euler  
+        
     
     # Ensure the 'furniture' collection exists
     furniture_collection = bpy.data.collections.get("furniture")
@@ -192,12 +197,20 @@ def create_tabletop_from_object(obj):
     furniture_collection.objects.link(table_top)    
 
 
+
+
 def create_tabletops_from_dxf_collection():
     dxf_collection = bpy.data.collections.get("dxf")
     if dxf_collection:
         for obj in dxf_collection.objects:
             if "Desk" in obj.name or "desk" in obj.name or "Table" in obj.name or "table" in obj.name:
-                create_tabletop_from_object(obj)
+                if obj.type == 'CURVE':
+                    shape, num_points = detect_shape(obj)
+                    if shape == 'square':
+                        print(f"square: {obj.name} - Shape: {shape} - Points: {num_points}")
+                        create_tabletop_square_from_object(obj)
+                    else:
+                        print(f"circle: {obj.name} - Shape: {shape} - Points: {num_points}")    
     else:
         print("Collection 'dxf' not found.")
 
@@ -258,8 +271,7 @@ def create_squares_from_dxf_object(obj, needle, scaleZ):
     # Set the scale of the table_top based on the bounding box dimensions
     table_top.scale.x = width 
     table_top.scale.y = depth 
-    table_top.scale.z = scaleZ
-    
+    table_top.scale.z = scaleZ    
 
     table_top.location = obj.location
     table_top.location.z = height - 0.025 / 2
