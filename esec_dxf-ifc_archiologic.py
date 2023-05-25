@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC DXF-IFC 3D Floorplan Tool",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 5, 1),
+    "version": (1, 5, 2),
     "blender": (3, 5, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Create furniture like tables and chairs from a DXF plan, exported from Archiologic.",
@@ -30,9 +30,9 @@ def detect_shape(ob):
     num_points = len(curve.splines[0].bezier_points) if curve.splines[0].type == 'BEZIER' else len(curve.splines[0].points)
     
     # Basic shape detection based on point count
-    if num_points == 4:
+    if num_points < 11:
         return 'square', num_points
-    elif num_points > 4:
+    elif num_points > 10:
         # Further refine the detection to check if it's a circle
         # Calculate the distance from each point to the object's center
         # If the distances are approximately equal, it's a circle
@@ -153,36 +153,42 @@ def remove_window_objects(collection_name):
             print(f"Removed object: {obj_name}")
 
 def create_tabletop_square_from_object(obj):
-    # Calculate the bounding box dimensions for the object
-    bbox_corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
-    bbox_dimensions = Vector((max(corner[i] for corner in bbox_corners) - min(corner[i] for corner in bbox_corners) for i in range(3)))
+    # Apply the inverse rotation to each point of the object to align it with the world axes
+    inv_rot = obj.rotation_euler.to_matrix().inverted()
+
+    local_coords = []
+    for spline in obj.data.splines:
+        if spline.type == 'BEZIER':
+            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.bezier_points)
+        elif spline.type == 'POLY':
+            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.points)
+
+    if not local_coords:
+        print(f"No points found in object {obj.name}")
+        return
+
+    # Calculate the bounding box dimensions in local space
+    bbox_dimensions = Vector((max(coord[i] for coord in local_coords) - min(coord[i] for coord in local_coords) for i in range(3)))
+
+    # Calculate the dimensions directly from the transformed vertices
+    width = max(v.x for v in local_coords) - min(v.x for v in local_coords)
+    depth = max(v.y for v in local_coords) - min(v.y for v in local_coords)
     
-    width, depth, _ = bbox_dimensions
-    height = bpy.context.scene.esec_addon_props.table_height #def height = 0.8
+    height = bpy.context.scene.esec_addon_props.table_height
     bpy.ops.mesh.primitive_cube_add(size=1)
     table_top = bpy.context.active_object
     table_top.name = obj.name + "_TableTop"
-    
-    # Set the scale of the table_top based on the bounding box dimensions
+
+    # Set the scale of the table_top based on the directly calculated dimensions
     table_top.scale.x = width - bpy.context.scene.esec_addon_props.table_margin
     table_top.scale.y = depth - bpy.context.scene.esec_addon_props.table_margin
     table_top.scale.z = 0.025
-    
+
     table_top.location = obj.location
     table_top.location.z = height - 0.025 / 2
 
-    # Rotate the new object to match the source object
-    # 1.5708 = 90 degrees
-    # 3.142 = 180 degrees
-    # 4.7124 = 270 degrees   
-
-    rotation_euler = round(obj.rotation_euler[2], 3)
-    allowed_rotations = [1.571, -1.571, 3.142, -3.142, 4.712, -4.712, 0.0]
-
-    if rotation_euler not in allowed_rotations:
-        #print(rotation_euler)
-        #print(round(obj.rotation_euler[2], 4))
-        table_top.rotation_euler = obj.rotation_euler   
+    # Now you can apply the original rotation of the object to the table_top
+    table_top.rotation_euler = obj.rotation_euler     
     
     # Ensure the 'furniture' collection exists
     furniture_collection = bpy.data.collections.get("tables")
@@ -440,8 +446,8 @@ def function_5(self, context):
 
 def create3D_Objects():
     print("Create 3d objects")
-    create_3Dobject_from_dxf_collection(['TaskChair', 'ConferenceChair'],'office_chair', 'Office_chairs')       
-    create_3Dobject_from_dxf_collection('DiningChair','dining_chair', 'Dining_chairs')        
+    create_3Dobject_from_dxf_collection(['TaskChair', 'ConferenceChair', 'Genericofficechair'],'office_chair', 'Office_chairs')       
+    create_3Dobject_from_dxf_collection(['DiningChair', 'GenericChair'],'dining_chair', 'Dining_chairs')        
     create_3Dobject_from_dxf_collection(['LoungeChair', 'Armchair'],'arm_chair', 'Arm_chairs')
     create_3Dobject_from_dxf_collection('BarStool','bar_stool', 'Bar_Stools')
     create_3Dobject_from_dxf_collection('Printer','printer', 'printer')
@@ -531,7 +537,7 @@ class ESEC_OT_create_3d_chairs(bpy.types.Operator):
     bl_label = "4b - Create 3D Objects"
 
     def execute(self, context):
-        create3D_Objects(self, context)
+        create3D_Objects()
         return {'FINISHED'}
 
 class ESEC_OT_function_5(bpy.types.Operator):
