@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC ICF-TI Helper",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 3),
+    "version": (1, 4),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Rename IFC Space based on DXF roomnames",
@@ -92,7 +92,8 @@ def move_objects_to_new_collection():
 
 def delete_unwanted_text_objects_from_dxf():
     # Define the list of strings to look for
-    strings_to_keep = ['North', 'South', 'West', 'East', 'Central']
+    strings_to_keep = bpy.context.scene.esec_strings_to_keep.split(', ')
+    #strings_to_keep = ['North', 'South', 'West', 'East', 'Central']
 
     # Get the 'dxf' collection
     dxf_collection = bpy.data.collections.get('dxf')
@@ -170,7 +171,8 @@ def print_spaces_and_texts():
 
     sorted_space_objects = sorted(space_objects, key=sort_spaces_numerically)
     
-    keywords = ['North', 'South', 'West', 'East', 'Central']
+    #keywords = ['North', 'South', 'West', 'East', 'Central']
+    keywords = bpy.context.scene.esec_strings_to_keep.split(', ')
 
     total_texts_found = 0
 
@@ -209,9 +211,7 @@ def print_spaces_and_texts():
     else:        
         print("checked")
             #replace_space_names_in_ifc(space_replacements)    
-    
-    
-    
+            
     return space_replacements
 
 def replace_space_names_in_ifc(space_replacements):
@@ -239,6 +239,12 @@ bpy.types.Scene.esec_dry_run = bpy.props.BoolProperty(
     default = True
 )
 
+# Define a string property on the scene
+bpy.types.Scene.esec_strings_to_keep = bpy.props.StringProperty(
+    name="Strings to keep",
+    description="Enter strings to keep, separated by commas",
+    default = 'North, South, West, East, Central'
+)
 
 class ESEC_OT_ImportIFC(bpy.types.Operator):
     bl_idname = "esec.import_ifc"
@@ -302,7 +308,9 @@ class ESEC_PT_MainPanel(bpy.types.Panel):
         layout.operator("esec.import_ifc", icon="IMPORT")
         layout.operator("esec.rename_spaces_by_longname", icon="FILE_3D")
         layout.separator()
-        layout.operator("esec.import_dxf", icon="IMPORT")        
+        layout.operator("esec.import_dxf", icon="IMPORT")  
+        layout.label(text="Strings to keep in DXF | used as prefix wildcard")      
+        layout.prop(context.scene, "esec_strings_to_keep")      
         layout.operator("esec.prepare_dxf", icon="FILE_VOLUME")
         layout.separator()
         layout.label(text="Clean up and prepare the DXF ")      
