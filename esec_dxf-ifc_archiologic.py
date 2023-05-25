@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC DXF-IFC 3D Floorplan Tool",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 5, 0),
+    "version": (1, 5, 1),
     "blender": (3, 5, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Create furniture like tables and chairs from a DXF plan, exported from Archiologic.",
@@ -164,8 +164,8 @@ def create_tabletop_square_from_object(obj):
     table_top.name = obj.name + "_TableTop"
     
     # Set the scale of the table_top based on the bounding box dimensions
-    table_top.scale.x = width - 0.01
-    table_top.scale.y = depth - 0.01
+    table_top.scale.x = width - bpy.context.scene.esec_addon_props.table_margin
+    table_top.scale.y = depth - bpy.context.scene.esec_addon_props.table_margin
     table_top.scale.z = 0.025
     
     table_top.location = obj.location
@@ -330,7 +330,10 @@ def create_3Dobject_from_dxf_collection(needles, model_name, new_collection_name
     if isinstance(needles, str):
         needles = [needles]
 
-    file_loc = bpy.path.abspath("//models\\"+model_name+".obj")
+    if bpy.context.scene.use_high_poly_models:
+        file_loc = bpy.path.abspath("//models_high\\"+model_name+".obj")
+    else:
+        file_loc = bpy.path.abspath("//models_low\\"+model_name+".obj")
 
     # Check if the file exists
     if not os.path.isfile(file_loc):
@@ -431,8 +434,19 @@ def function_5(self, context):
     remove_collection("IfcProject/None")
     remove_window_objects("ifc")
     create_tabletops_from_dxf_collection()    
-    create_stools_from_dxf_collection()
-    print("Step 5 done")
+    #create_stools_from_dxf_collection()
+    create3D_Objects()
+    print("all done")
+
+def create3D_Objects():
+    print("Create 3d objects")
+    create_3Dobject_from_dxf_collection(['TaskChair', 'ConferenceChair'],'office_chair', 'Office_chairs')       
+    create_3Dobject_from_dxf_collection('DiningChair','dining_chair', 'Dining_chairs')        
+    create_3Dobject_from_dxf_collection(['LoungeChair', 'Armchair'],'arm_chair', 'Arm_chairs')
+    create_3Dobject_from_dxf_collection('BarStool','bar_stool', 'Bar_Stools')
+    create_3Dobject_from_dxf_collection('Printer','printer', 'printer')
+    create_3Dobject_from_dxf_collection('Sofa','couch_76x76x45_round', 'Sofas')
+    print("Create 3d objects done")
 
 class OBJECT_OT_DeleteIfcCollection(bpy.types.Operator):
     bl_idname = "object.delete_ifc_collection"
@@ -466,12 +480,17 @@ class OBJECT_OT_DeleteFurnitureCollection(bpy.types.Operator):
     bl_description = "Deletes the 'furniture' collection if it exists"
 
     def execute(self, context):
-        furniture_collection = bpy.data.collections.get("furniture")
-        if furniture_collection:
-            bpy.data.collections.remove(furniture_collection)
-            print("Deleted 'furniture' collection.")
-        else:
-            print("Collection 'furniture' not found.")                
+
+        collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 'Sofas']
+
+        for collection_name in collections:
+            collection = bpy.data.collections.get(collection_name)
+            if collection:
+                bpy.data.collections.remove(collection)
+                print(f"Deleted '{collection_name}' collection.")
+            else:
+                print(f"Collection '{collection_name}' not found.")
+
         return {'FINISHED'}
 
 # Operator classes
@@ -501,7 +520,7 @@ class ESEC_OT_function_3(bpy.types.Operator):
 
 class ESEC_OT_create_simple_chairs(bpy.types.Operator):
     bl_idname = "esec.create_simple_chairs"
-    bl_label = "Step 4a - Create simple chairs"
+    bl_label = "Step 4 - Create simple chairs"
 
     def execute(self, context):
         create_simple_chairs(self, context)
@@ -509,18 +528,10 @@ class ESEC_OT_create_simple_chairs(bpy.types.Operator):
     
 class ESEC_OT_create_3d_chairs(bpy.types.Operator):
     bl_idname = "esec.create_3d_chairs"
-    bl_label = "Step 4b - Create 3D Chairs"
+    bl_label = "4b - Create 3D Objects"
 
     def execute(self, context):
-        print("Create 3d chairs")
-        create_3Dobject_from_dxf_collection(['TaskChair', 'ConferenceChair'],'office_chair', 'Office_chairs')       
-        create_3Dobject_from_dxf_collection('DiningChair','dining_chair', 'Dining_chairs')        
-        create_3Dobject_from_dxf_collection(['LoungeChair', 'Armchair'],'arm_chair', 'Arm_chairs')
-        create_3Dobject_from_dxf_collection('BarStool','bar_stool', 'Bar_Stools')
-        create_3Dobject_from_dxf_collection('Printer','printer', 'printer')
-        create_3Dobject_from_dxf_collection('Sofa','couch_76x76x45_round', 'Sofas')
-
-        print("Create 3d chairs done")
+        create3D_Objects(self, context)
         return {'FINISHED'}
 
 class ESEC_OT_function_5(bpy.types.Operator):
@@ -562,7 +573,7 @@ class EsecExportObjOperator(bpy.types.Operator):
     bl_description = "Export the current scene as an OBJ file"
 
     def execute(self, context):
-        bpy.ops.export_scene.obj('INVOKE_DEFAULT')
+        bpy.ops.wm.obj_export('INVOKE_DEFAULT')
         return {'FINISHED'}
 
 class EsecSubmenu(bpy.types.Menu):
@@ -574,6 +585,7 @@ class EsecSubmenu(bpy.types.Menu):
         layout.operator(OBJECT_OT_DeleteIfcCollection.bl_idname)
         layout.operator(OBJECT_OT_DeleteDxfCollection.bl_idname)
         layout.operator(OBJECT_OT_DeleteFurnitureCollection.bl_idname)
+        layout.operator("esec.create_simple_chairs", icon="OUTLINER_OB_POINTCLOUD")
 
 
 class ESEC_OT_create_storage(bpy.types.Operator):
@@ -635,6 +647,23 @@ class ESECAddonProperties(bpy.types.PropertyGroup):
         max=2
     )    
 
+    table_margin: bpy.props.FloatProperty(
+        name="Margin between tables",
+        description="Margin between tables",
+        default=0.02,
+        min=0,
+        max=0.5
+    )    
+
+    sideboard_height2: bpy.props.FloatProperty(
+        name="Sideboard Scale Z",
+        description="Height for Sideboard",
+        default=0.2,
+        min=0.1,
+        max=2
+    )    
+
+
 
 # Panel class
 class ESEC_PT_panel(bpy.types.Panel):
@@ -654,8 +683,10 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout.operator("esec.function_1", icon="FILE_VOLUME")
         layout.operator("esec.function_2", icon="FILE_3D")
         layout.operator("esec.function_3", icon="SNAP_VERTEX")
-        layout.operator("esec.create_simple_chairs", icon="OUTLINER_OB_POINTCLOUD")
         layout.operator("esec.create_3d_chairs", icon="OUTLINER_OB_POINTCLOUD")
+        layout.prop(context.scene, "use_high_poly_models")
+        layout.operator("esec.create_storage", icon="SNAP_FACE")
+        layout.operator("esec.create_sideboard", icon="SNAP_EDGE")
         layout.separator()
         layout.operator("esec.function_5", icon="HAND")
         layout.separator()        
@@ -663,16 +694,15 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout.operator("wm.export_obj_esec", icon='EXPORT')
         layout.separator()        
         layout.menu(EsecSubmenu.bl_idname)
-        layout.separator()      
+        layout.separator()   
+        layout.label(text="Settings")        
         layout.prop(props, "table_height", text="Table Height")
         layout.prop(props, "chair_height", text="Chair Height")  
         layout.prop(props, "stool_scale", text="Chairs Scale")        
         layout.prop(props, "storage_height", text="Storage Height")        
-        layout.prop(props, "sideboard_height", text="Sideboard Height")        
-        layout.separator()
-        layout.separator()
-        layout.operator("esec.create_storage", icon="FILE_3D")
-        layout.operator("esec.create_sideboard", icon="FILE_3D")
+        layout.prop(props, "sideboard_height", text="Sideboard Height")                
+        layout.prop(props, "table_margin", text="Table margin")                
+
 
 
 
@@ -698,6 +728,7 @@ def register():
     bpy.utils.register_class(OBJECT_OT_DeleteFurnitureCollection)
     bpy.utils.register_class(ESEC_OT_create_storage)
     bpy.utils.register_class(ESEC_OT_create_sideboard)
+    bpy.types.Scene.use_high_poly_models = bpy.props.BoolProperty(name="Use high poly models", default=False)
 
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
@@ -736,6 +767,7 @@ def unregister():
     bpy.utils.unregister_class(OBJECT_OT_DeleteFurnitureCollection)
     bpy.utils.unregister_class(ESEC_OT_create_storage)
     bpy.utils.unregister_class(ESEC_OT_create_sideboard)
+    del bpy.types.Scene.use_high_poly_models
 
 if __name__ == "__main__":
     register()
