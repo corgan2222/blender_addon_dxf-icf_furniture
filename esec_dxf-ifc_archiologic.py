@@ -163,8 +163,8 @@ def create_tabletop_square_from_object(obj):
     table_top.name = obj.name + "_TableTop"
     
     # Set the scale of the table_top based on the bounding box dimensions
-    table_top.scale.x = width 
-    table_top.scale.y = depth 
+    table_top.scale.x = width - 0.01
+    table_top.scale.y = depth - 0.01
     table_top.scale.z = 0.025
     
     table_top.location = obj.location
@@ -320,6 +320,9 @@ def create_squares_from_dxf_collection(needle, scaleZ):
     else:
         print("Collection 'dxf' not found.")
 
+#################################################################################################################
+#################################################################################################################
+
 def create_chairs_from_dxf_collection(needle):
 
     #TODO load from local disc instead of having a fixed path
@@ -327,8 +330,7 @@ def create_chairs_from_dxf_collection(needle):
     file_loc = bpy.path.abspath("//models\\office_chair.obj")
     imported_object = bpy.ops.import_scene.obj(filepath=file_loc)
     selected_obj = bpy.context.selected_objects[0]
-    
-        
+            
     chair_collection = bpy.data.collections.get("chairs")
     if not chair_collection:
         chair_collection = bpy.data.collections.new("chairs")
@@ -700,5 +702,68 @@ if __name__ == "__main__":
 
 
 
-# Squarae 
-#   Storage 
+# base64 models 
+
+
+# import os
+# import bpy
+# import pickle
+# import base64
+
+# def get_mesh_data(obj):
+#     verts = [v.co[:] for v in obj.data.vertices]
+#     edges = [e.vertices[:] for e in obj.data.edges]
+#     faces = [f.vertices[:] for f in obj.data.polygons]
+#     location = obj.location[:]
+#     scale = obj.scale[:]
+#     rotation_euler = obj.rotation_euler[:]
+#     return verts, edges, faces, location, scale, rotation_euler
+
+# # get the currently selected object
+# obj = bpy.context.active_object
+
+# # check if an object is selected and it is a mesh object
+# if obj and obj.type == 'MESH':
+#     verts, edges, faces, location, scale, rotation_euler = get_mesh_data(obj)
+
+#     # serialize and encode the data
+#     serialized_data = pickle.dumps((verts, edges, faces, location, scale, rotation_euler))
+#     encoded_data = base64.b64encode(serialized_data)
+
+#     # get the path to the current Blender file
+#     blend_path = bpy.data.filepath
+
+#     # get the directory of the current Blender file
+#     blend_dir = os.path.dirname(blend_path)
+
+#     # construct the file path for the data file
+#     data_file_path = os.path.join(blend_dir, f"{obj.name}.dat")
+
+#     # write the encoded data to the file
+#     with open(data_file_path, 'wb') as f:
+#         f.write(encoded_data)
+# else:
+#     print("No mesh object selected.")
+
+
+# import bpy
+# import pickle
+# import base64
+
+# def create_object(name, verts, edges, faces, location, scale, rotation_euler):
+#     mesh = bpy.data.meshes.new(name)
+#     mesh.from_pydata(verts, edges, faces)
+#     obj = bpy.data.objects.new(name, mesh)
+#     bpy.context.scene.collection.objects.link(obj)
+#     obj.location = location
+#     obj.scale = scale
+#     obj.rotation_euler = rotation_euler
+#     return obj
+
+
+# data = b''
+
+# decoded_data = base64.b64decode(data)
+# verts, edges, faces, location, scale, rotation_euler = pickle.loads(decoded_data)
+
+# create_object('new_sofa', verts, edges, faces, location, scale, rotation_euler)
