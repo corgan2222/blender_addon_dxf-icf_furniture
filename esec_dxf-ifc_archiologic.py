@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC DXF-IFC 3D Floorplan Tool",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 4, 1),
+    "version": (1, 5, 0),
     "blender": (3, 5, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Create furniture like tables and chairs from a DXF plan, exported from Archiologic.",
@@ -14,6 +14,7 @@ import bpy
 import os
 import math
 import os
+import re
 from mathutils import Vector
 
 def detect_shape(ob):
@@ -323,26 +324,33 @@ def create_squares_from_dxf_collection(needle, scaleZ):
 #################################################################################################################
 #################################################################################################################
 
-def create_chairs_from_dxf_collection(needle):
+def create_3Dobject_from_dxf_collection(needles, model_name, new_collection_name):
 
-    #TODO load from local disc instead of having a fixed path
-    #file_loc = bpy.ops.import_scene.obj('INVOKE_DEFAULT')
-    file_loc = bpy.path.abspath("//models\\office_chair.obj")
+    # Convert single string needle to list for compatibility
+    if isinstance(needles, str):
+        needles = [needles]
+
+    file_loc = bpy.path.abspath("//models\\"+model_name+".obj")
+
+    # Check if the file exists
+    if not os.path.isfile(file_loc):
+        print(f"Error: {file_loc} does not exist.")
+        return
+
     imported_object = bpy.ops.import_scene.obj(filepath=file_loc)
     selected_obj = bpy.context.selected_objects[0]
             
-    chair_collection = bpy.data.collections.get("chairs")
-    if not chair_collection:
-        chair_collection = bpy.data.collections.new("chairs")
-        bpy.context.scene.collection.children.link(chair_collection)
-       
+    collection_to_write = bpy.data.collections.get(new_collection_name)
+    if not collection_to_write:
+        collection_to_write = bpy.data.collections.new(new_collection_name)
+        bpy.context.scene.collection.children.link(collection_to_write)       
 
     dxf_collection = bpy.data.collections.get("dxf")
     if dxf_collection:
         for obj in dxf_collection.objects:
-            if needle.lower() in obj.name.lower():
-                #selected_obj.copy() to create a real copy, otherwise it would be just a reference to the imported model
-                create_chair_from_dxf_object(obj,selected_obj.copy(),chair_collection)
+            for needle in needles:
+                if needle.lower() in obj.name.lower():                    
+                    create_3d_object_from_dxf_object(obj,selected_obj.copy(),collection_to_write)
     else:
         print("Collection 'dxf' not found.")
 
@@ -351,17 +359,44 @@ def create_chairs_from_dxf_collection(needle):
 
 
 
-def create_chair_from_dxf_object(dxf_obj,obj_model, collection_to_add_to):
+def create_3d_object_from_dxf_object(dxf_obj,obj_model, collection_to_add_to):
 
     print('create_chair_from_dxf_object: dxf_obj.location: ', dxf_obj.location)
     obj_model.location = dxf_obj.location
     obj_model.rotation_euler[2] = dxf_obj.rotation_euler[2]
     collection_to_add_to.objects.link(obj_model)
-
-
-
+    
 
 ######################################################################################################
+
+def count_objects_in_collection(collection_name):
+    #count_objects_in_collection('dxf')
+
+    collection = bpy.data.collections.get(collection_name)
+    
+    if not collection:
+        print(f"No collection named {collection_name}")
+        return
+
+    # We'll use a dictionary to count the objects
+    object_count = {}
+
+    for obj in collection.objects:
+        # We'll use regex to extract the base name of the object (name without trailing .###)
+        match = re.match(r"([^.]*)(\.\d+)?", obj.name)
+        if match:
+            base_name = match.group(1)
+            # If this base name is not in the dictionary yet, add it with a count of 1
+            if base_name not in object_count:
+                object_count[base_name] = 1
+            # If it's already in the dictionary, increment the count
+            else:
+                object_count[base_name] += 1
+    
+    for name, count in object_count.items():
+        print(f"{count}x {name}")
+
+
 # Function definitions
 def function_1(self, context):
     print("Step 1 - prepare DXF")
@@ -478,7 +513,13 @@ class ESEC_OT_create_3d_chairs(bpy.types.Operator):
 
     def execute(self, context):
         print("Create 3d chairs")
-        create_chairs_from_dxf_collection('chair')    
+        create_3Dobject_from_dxf_collection(['TaskChair', 'ConferenceChair'],'office_chair', 'Office_chairs')       
+        create_3Dobject_from_dxf_collection('DiningChair','dining_chair', 'Dining_chairs')        
+        create_3Dobject_from_dxf_collection(['LoungeChair', 'Armchair'],'arm_chair', 'Arm_chairs')
+        create_3Dobject_from_dxf_collection('BarStool','bar_stool', 'Bar_Stools')
+        create_3Dobject_from_dxf_collection('Printer','printer', 'printer')
+        create_3Dobject_from_dxf_collection('Sofa','couch_76x76x45_round', 'Sofas')
+
         print("Create 3d chairs done")
         return {'FINISHED'}
 
