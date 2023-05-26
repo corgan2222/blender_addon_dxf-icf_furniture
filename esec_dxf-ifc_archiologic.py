@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC DXF-IFC 3D Floorplan Tool",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 6, 0),
+    "version": (1, 6, 1),
     "blender": (3, 5, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Create furniture like tables and chairs from a DXF plan, exported from Archiologic.",
@@ -449,6 +449,10 @@ def assign_collection_materials():
     white_material = bpy.data.materials.new(name="White")
     white_material.diffuse_color = (0.95, 0.95, 0.95, 1.0)  # Nearly white color
     
+    # Create a dark gray material
+    gray_material = bpy.data.materials.new(name="DarkGray")
+    gray_material.diffuse_color = (0.2, 0.2, 0.2, 1.0)  
+
     # Assign materials to collections
     for coll in bpy.data.collections:
         if 'table' in coll.name.lower():  # Check if the collection's name contains 'table'
@@ -463,7 +467,11 @@ def assign_collection_materials():
         for obj in coll.objects:
             if obj.type == 'MESH':
                 obj.data.materials.clear()
-                obj.data.materials.append(material)
+                if 'door' in obj.name.lower():  # Check if 'door' is in the object's name
+                    obj.data.materials.append(gray_material)
+                else:
+                    obj.data.materials.append(material)
+
 
 
 

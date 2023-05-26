@@ -1,4 +1,4 @@
-# Blender 3.5.1 MTL File: 'untitled2.blend'
+# Blender 3.5.1 MTL File: 'untitled3.blend'
 # www.blender.org
 
 newmtl Arm_chairs
@@ -92,6 +92,16 @@ d 1.000000
 illum 2
 
 newmtl ifc
+Ns 360.000000
+Ka 1.000000 1.000000 1.000000
+Kd 0.800000 0.800000 0.800000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.000000
+d 1.000000
+illum 2
+
+newmtl printer
 Ns 360.000000
 Ka 1.000000 1.000000 1.000000
 Kd 0.800000 0.800000 0.800000
