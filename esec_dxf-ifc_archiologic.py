@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC DXF-IFC 3D Floorplan Tool",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 5, 2),
+    "version": (1, 6, 0),
     "blender": (3, 5, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Create furniture like tables and chairs from a DXF plan, exported from Archiologic.",
@@ -129,6 +129,35 @@ def remove_collection(collection_name):
 
     bpy.data.collections.remove(collection)
     print(f"Removed collection: {collection_name}")
+
+
+def move_window_objects_to_collection(collection_name, new_collection_name):
+    source_collection = bpy.data.collections.get(collection_name)
+    if not source_collection:
+        print(f"Collection '{collection_name}' not found.")
+        return
+
+    # Get or create the target collection
+    target_collection = bpy.data.collections.get(new_collection_name)
+    if not target_collection:
+        target_collection = bpy.data.collections.new(new_collection_name)
+        bpy.context.scene.collection.children.link(target_collection)
+    
+    keywords = ['Window', 'window']
+    objects_to_move = []
+
+    # Find objects to move
+    for obj in source_collection.objects:
+        if any(keyword in obj.name for keyword in keywords):
+            objects_to_move.append(obj.name)
+
+    # Move objects
+    for obj_name in objects_to_move:
+        obj = bpy.data.objects.get(obj_name)
+        if obj:
+            source_collection.objects.unlink(obj)
+            target_collection.objects.link(obj)
+            print(f"Moved object: {obj_name} to collection: {new_collection_name}")
 
 
 def remove_window_objects(collection_name):
@@ -330,8 +359,7 @@ def create_squares_from_dxf_collection(needle, scaleZ):
 #################################################################################################################
 #################################################################################################################
 
-def create_3Dobject_from_dxf_collection(needles, model_name, new_collection_name):
-
+def create_3Dobject_from_dxf_collection(needles, model_name, new_collection_name, ignoreKeyword=None):
     # Convert single string needle to list for compatibility
     if isinstance(needles, str):
         needles = [needles]
@@ -358,7 +386,9 @@ def create_3Dobject_from_dxf_collection(needles, model_name, new_collection_name
     if dxf_collection:
         for obj in dxf_collection.objects:
             for needle in needles:
-                if needle.lower() in obj.name.lower():                    
+                if needle.lower() in obj.name.lower():  
+                    if ignoreKeyword and ignoreKeyword.lower() in obj.name.lower():
+                        continue  # skip this object and go to the next
                     create_3d_object_from_dxf_object(obj,selected_obj.copy(),collection_to_write)
     else:
         print("Collection 'dxf' not found.")
@@ -405,6 +435,38 @@ def count_objects_in_collection(collection_name):
     for name, count in object_count.items():
         print(f"{count}x {name}")
 
+def assign_collection_materials():
+    # Remove all materials
+    for material in bpy.data.materials:
+        bpy.data.materials.remove(material)
+
+    # Create a glass material
+    glass_material = bpy.data.materials.new(name="Glass")
+    glass_material.use_nodes = True
+    glass_material.node_tree.nodes["Principled BSDF"].inputs[15].default_value = 1.0  # Transmission
+
+    # Create a nearly white material
+    white_material = bpy.data.materials.new(name="White")
+    white_material.diffuse_color = (0.95, 0.95, 0.95, 1.0)  # Nearly white color
+    
+    # Assign materials to collections
+    for coll in bpy.data.collections:
+        if 'table' in coll.name.lower():  # Check if the collection's name contains 'table'
+            material = white_material
+        elif coll.name == 'Windows':
+            material = glass_material
+        else:
+            material = bpy.data.materials.new(name=coll.name)
+            material.diffuse_color = (0.8, 0.8, 0.8, 1.0)  # Light gray color
+        
+        # Assign material to each object in the collection
+        for obj in coll.objects:
+            if obj.type == 'MESH':
+                obj.data.materials.clear()
+                obj.data.materials.append(material)
+
+
+
 
 # Function definitions
 def function_1(self, context):
@@ -418,7 +480,8 @@ def function_2(self, context):
     print("Step 2 - prepare IFC")
     move_objects_to_ifc()
     remove_collection("IfcProject/None")
-    remove_window_objects("ifc")        
+    #remove_window_objects("ifc")        
+    move_window_objects_to_collection("ifc", "Windows")
     print("Step 2 done")
 
 def function_3(self, context):
@@ -429,6 +492,7 @@ def function_3(self, context):
 def create_simple_chairs(self, context):
     print("Step 4 - create stools")
     create_stools_from_dxf_collection()
+    #assign_collection_materials()
     print("Step 4 done")
 
 def function_5(self, context):
@@ -451,7 +515,8 @@ def create3D_Objects():
     create_3Dobject_from_dxf_collection(['LoungeChair', 'Armchair'],'arm_chair', 'Arm_chairs')
     create_3Dobject_from_dxf_collection('BarStool','bar_stool', 'Bar_Stools')
     create_3Dobject_from_dxf_collection('Printer','printer', 'printer')
-    create_3Dobject_from_dxf_collection('Sofa','couch_76x76x45_round', 'Sofas')
+    create_3Dobject_from_dxf_collection('Sofa','couch_76x76x45_round', 'Sofas', ignoreKeyword='Corner')
+    create_3Dobject_from_dxf_collection('CornerSofa','couch_76x76x45_round_corner', 'Sofas')
     print("Create 3d objects done")
 
 class OBJECT_OT_DeleteIfcCollection(bpy.types.Operator):
@@ -534,7 +599,7 @@ class ESEC_OT_create_simple_chairs(bpy.types.Operator):
     
 class ESEC_OT_create_3d_chairs(bpy.types.Operator):
     bl_idname = "esec.create_3d_chairs"
-    bl_label = "4b - Create 3D Objects"
+    bl_label = "Step 4 - Create 3D Objects"
 
     def execute(self, context):
         create3D_Objects()
@@ -612,6 +677,15 @@ class ESEC_OT_create_sideboard(bpy.types.Operator):
         print("Create sideboards")
         create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height)    
         print("Create sideboards done")
+        return {'FINISHED'}
+
+
+class ESEC_OT_assign_materials(bpy.types.Operator):
+    bl_idname = "esec.assign_materials"
+    bl_label = "Assign Materials"
+
+    def execute(self, context):
+        assign_collection_materials()
         return {'FINISHED'}
 
 class ESECAddonProperties(bpy.types.PropertyGroup):
@@ -697,6 +771,7 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout.operator("esec.function_5", icon="HAND")
         layout.separator()        
         layout.operator("wm.save_as_esec", icon="FILE_TICK")
+        layout.operator("esec.assign_materials", icon="IMAGE_RGB_ALPHA", text="Assign Materials")
         layout.operator("wm.export_obj_esec", icon='EXPORT')
         layout.separator()        
         layout.menu(EsecSubmenu.bl_idname)
@@ -734,6 +809,7 @@ def register():
     bpy.utils.register_class(OBJECT_OT_DeleteFurnitureCollection)
     bpy.utils.register_class(ESEC_OT_create_storage)
     bpy.utils.register_class(ESEC_OT_create_sideboard)
+    bpy.utils.register_class(ESEC_OT_assign_materials)
     bpy.types.Scene.use_high_poly_models = bpy.props.BoolProperty(name="Use high poly models", default=False)
 
     wm = bpy.context.window_manager
@@ -773,6 +849,7 @@ def unregister():
     bpy.utils.unregister_class(OBJECT_OT_DeleteFurnitureCollection)
     bpy.utils.unregister_class(ESEC_OT_create_storage)
     bpy.utils.unregister_class(ESEC_OT_create_sideboard)
+    bpy.utils.unregister_class(ESEC_OT_assign_materials)
     del bpy.types.Scene.use_high_poly_models
 
 if __name__ == "__main__":
