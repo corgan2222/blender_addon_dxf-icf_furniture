@@ -792,9 +792,6 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout.prop(props, "sideboard_height", text="Sideboard Height")                
         layout.prop(props, "table_margin", text="Table margin")                
 
-
-
-
 addon_keymaps = []
 
 def register():
