@@ -3,6 +3,7 @@ import os
 import math
 import os
 import re
+import bmesh
 from mathutils import Vector
 from bpy.types import Panel
 
@@ -10,7 +11,7 @@ from . import config
 
 # Panel class
 class ESEC_PT_panel(bpy.types.Panel):
-    bl_label = "ESEC 3D Floorplan Creator v 1.7.8" #+ str(bl_info['version'])
+    bl_label = "ESEC 3D Floorplan Creator v 1.8.0" #+ str(bl_info['version'])
     bl_idname = "ESEC_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -36,6 +37,10 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout.separator()        
         layout.operator("wm.save_as_esec", icon="FILE_TICK")        
         layout.operator("wm.export_obj_esec", icon='EXPORT')
+        layout.operator("wm.export_obj_esec", icon='EXPORT')
+        layout.separator()
+        layout.operator("esec.setup_renderer", icon='SHADING_RENDERED')
+        layout.operator("esec.render", icon='RENDERLAYERS')
         layout.separator()        
         layout.menu(EsecSubmenu.bl_idname)
         layout.separator()   
@@ -118,7 +123,9 @@ class ESEC_OT_function_2(bpy.types.Operator):
         print("Step 2 - prepare IFC")
         move_objects_to_ifc()
         remove_collection("IfcProject/None")
-        move_window_objects_to_collection("ifc", "Windows")
+        move_objects_to_new_collection("IfcSlab/Floor", "ifc", "Floors")  
+        move_objects_to_new_collection("IfcDoor/Door", "ifc", "Doors")
+        move_objects_to_new_collection("IfcWindow/Window", "ifc", "Windows")  
         print("Step 2 done")        
         return {'FINISHED'}
 
@@ -165,7 +172,9 @@ class ESEC_OT_function_5(bpy.types.Operator):
         rename_objects_dxf("dxf")
         move_objects_to_ifc()
         remove_collection("IfcProject/None")
-        move_window_objects_to_collection("ifc", "Windows")
+        move_objects_to_new_collection("IfcSlab/Floor", "ifc", "Floors")  
+        move_objects_to_new_collection("IfcDoor/Door", "ifc", "Doors")
+        move_objects_to_new_collection("IfcWindow/Window", "ifc", "Windows") 
         create_tabletops_from_dxf_collection()    
         create3D_Objects()
         create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
@@ -180,6 +189,7 @@ class IMPORT_OT_dxf(bpy.types.Operator):
     bl_description = "Import the DXF file exported from Archiologic"
     
     def execute(self, context):
+        global last_imported_dxf_directory, last_imported_dxf_filename
         bpy.ops.import_scene.dxf('INVOKE_DEFAULT')
         return {'FINISHED'}
 
@@ -225,6 +235,7 @@ class EsecSubmenu(bpy.types.Menu):
 class ESEC_OT_create_storage(bpy.types.Operator):
     bl_idname = "esec.create_storage"
     bl_label = "Step 5 - Create Storage"
+    bl_description = "Create storage from the DXF collection."
 
     def execute(self, context):
         print("Create Storage")
@@ -235,6 +246,7 @@ class ESEC_OT_create_storage(bpy.types.Operator):
 class ESEC_OT_create_sideboard(bpy.types.Operator):
     bl_idname = "esec.create_sideboard"
     bl_label = "Step 6 - Create Sideboard"
+    bl_description = "Create sideboard from the DXF collection."
 
     def execute(self, context):
         print("Create sideboards")
@@ -246,10 +258,32 @@ class ESEC_OT_create_sideboard(bpy.types.Operator):
 class ESEC_OT_assign_materials(bpy.types.Operator):
     bl_idname = "esec.assign_materials"
     bl_label = "Step 7 - Assign Materials"
+    bl_description = "Assign materials to all objects."
 
     def execute(self, context):
         assign_collection_materials()
         return {'FINISHED'}         
+
+class ESEC_OT_setup_renderer(bpy.types.Operator):
+    bl_idname = "esec.setup_renderer"
+    bl_label = "Setup Renderer"
+    bl_description = "Setup the GPU cycles renderer. Create a hdri enviroment, set a transparent background and create a camera."
+
+    def execute(self, context):
+        setup_render()
+        setup_hdri()
+        set_transparent_background()
+        setup_camera()
+        return {'FINISHED'}
+
+class ESEC_OT_render(bpy.types.Operator):
+    bl_idname = "esec.render"
+    bl_label = "Render Scene"
+    bl_description = "Renders the scene with the current settings. Dont forget to create the render enviroment first."
+
+    def execute(self, context):
+        render_scene(3400, 1923)
+        return {'FINISHED'}
 
 addon_keymaps = []
 
@@ -273,6 +307,8 @@ def register():
     bpy.utils.register_class(ESEC_OT_create_storage)
     bpy.utils.register_class(ESEC_OT_create_sideboard)
     bpy.utils.register_class(ESEC_OT_assign_materials)
+    bpy.utils.register_class(ESEC_OT_setup_renderer)
+    bpy.utils.register_class(ESEC_OT_render)
 
 
     wm = bpy.context.window_manager
@@ -310,6 +346,8 @@ def unregister():
     bpy.utils.unregister_class(ESEC_OT_create_storage)
     bpy.utils.unregister_class(ESEC_OT_create_sideboard)
     bpy.utils.unregister_class(ESEC_OT_assign_materials)
+    bpy.utils.unregister_class(ESEC_OT_setup_renderer)
+    bpy.utils.unregister_class(ESEC_OT_render)
 
     for km, kmi in addon_keymaps:
         km.keymap_items.remove(kmi)
@@ -370,7 +408,7 @@ def delete_unwanted_objects(collection_name):
         print(f"Collection '{collection_name}' not found.")
         return
 
-    allowed_keywords = ['Desk', 'Chair', 'chair', 'Sofa', 'Table', 'Storage', 'Sideboard', 'Bed', 'Stool', 'Printer']
+    allowed_keywords = ['Desk', 'Chair', 'chair', 'Sofa', 'Table', 'Storage', 'Sideboard', 'Bed', 'Stool', 'Printer', 'Bench']
     objects_to_delete = []
 
     # Find objects to delete
@@ -458,6 +496,35 @@ def move_window_objects_to_collection(collection_name, new_collection_name):
             source_collection.objects.unlink(obj)
             target_collection.objects.link(obj)
             print(f"Moved object: {obj_name} to collection: {new_collection_name}")
+
+
+def move_objects_to_new_collection(keyword, collection_name, new_collection_name):
+    source_collection = bpy.data.collections.get(collection_name)
+    if not source_collection:
+        print(f"Collection '{collection_name}' not found.")
+        return
+
+    # Get or create the target collection
+    target_collection = bpy.data.collections.get(new_collection_name)
+    if not target_collection:
+        target_collection = bpy.data.collections.new(new_collection_name)
+        bpy.context.scene.collection.children.link(target_collection)
+    
+    #keywords = ['IfcSlab/Floor']
+    objects_to_move = []
+
+    # Find objects to move
+    for obj in source_collection.objects:
+        if keyword in obj.name :
+            objects_to_move.append(obj.name)
+
+    # Move objects
+    for obj_name in objects_to_move:
+        obj = bpy.data.objects.get(obj_name)
+        if obj:
+            source_collection.objects.unlink(obj)
+            target_collection.objects.link(obj)
+            print(f"Moved object: {obj_name} to collection: {new_collection_name}") 
 
 
 def remove_window_objects(collection_name):
@@ -741,30 +808,108 @@ def count_objects_in_collection(collection_name):
     for name, count in object_count.items():
         print(f"{count}x {name}")
 
+
+def create_glass_material():
+    # Create a glass material
+    glass_material = bpy.data.materials.new(name="Windows")
+    glass_material.use_nodes = True
+
+    # Get the material node tree
+    nodes = glass_material.node_tree.nodes
+
+    # Clear all nodes
+    for node in nodes:
+        nodes.remove(node)
+
+    # Create a new Glass BSDF node
+    glass_node = nodes.new(type='ShaderNodeBsdfGlass')
+
+    # Set the Glass BSDF properties
+    glass_node.inputs['Roughness'].default_value = 0
+    glass_node.inputs['IOR'].default_value = 1.450
+
+    # Create a Material Output node and connect the Glass node to its Surface input
+    output_node = nodes.new(type='ShaderNodeOutputMaterial')
+    links = glass_material.node_tree.links
+    link = links.new(glass_node.outputs[0], output_node.inputs[0])
+    
+    return glass_material
+
+
+
+def create_material(material_name, base_color, specular, roughness):
+    material = bpy.data.materials.new(name=material_name)
+    material.use_nodes = True
+
+    # Get the Principled BSDF node
+    principled_bsdf = material.node_tree.nodes["Principled BSDF"]
+
+    # Set the base color (RGB)
+    principled_bsdf.inputs['Base Color'].default_value = base_color
+
+    # Set specular
+    principled_bsdf.inputs['Specular'].default_value = specular
+
+    # Set roughness
+    principled_bsdf.inputs['Roughness'].default_value = roughness
+    
+    return material
+
 def assign_collection_materials():
     # Remove all materials
     for material in bpy.data.materials:
         bpy.data.materials.remove(material)
 
-    # Create a glass material
-    glass_material = bpy.data.materials.new(name="Glass")
-    glass_material.use_nodes = True
-    glass_material.node_tree.nodes["Principled BSDF"].inputs[15].default_value = 1.0  # Transmission
-
-    # Create a nearly white material
-    white_material = bpy.data.materials.new(name="White")
-    white_material.diffuse_color = (0.95, 0.95, 0.95, 1.0)  # Nearly white color
-    
-    # Create a dark gray material
-    gray_material = bpy.data.materials.new(name="DarkGray")
-    gray_material.diffuse_color = (0.2, 0.2, 0.2, 1.0)  
-
+    Windows_material        = create_glass_material()
+    ifc_material            = create_material("ifc", (0.8, 0.8, 0.8, 1), 0, 0.1)
+    floor_material          = create_material("Floor", (0.4, 0.4, 0.4, 1), 0, 0.1)
+    Doors_material          = create_material("Doors", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+    table_material          = create_material("Table", (0.9, 0.9, 0.9, 1), 0.8, 0.1)    
+    Office_chairs_material  = create_material("Office_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+    Dining_chairs_material  = create_material("Dining_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+    Arm_chairs_material     = create_material("Arm_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+    Bar_Stools_material     = create_material("Bar_Stools", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+    printer_material        = create_material("printer", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+    Sofas_material          = create_material("Sofas", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+    outdoor_bench_material  = create_material("outdoor_bench", (0.6, 0.6, 0.6, 1), 0.15, 0.15)
+    outdoor_chair_material  = create_material("outdoor_chair", (0.6, 0.6, 0.6, 1), 0.15, 0.15)
+    Storage_material        = create_material("Storage", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+    Sideboard_material      = create_material("Sideboard", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+       
     # Assign materials to collections
     for coll in bpy.data.collections:
-        if 'table' in coll.name.lower():  # Check if the collection's name contains 'table'
-            material = white_material
+
+        #select the correct material, based on the collection name
+        if coll.name == "ifc":
+            material = ifc_material
+        elif coll.name == 'Floors':
+            material = floor_material            
+        elif coll.name == 'Doors':
+            material = Doors_material            
         elif coll.name == 'Windows':
-            material = glass_material
+            material = Windows_material
+        elif coll.name == 'tables':
+            material = table_material  
+        elif coll.name == 'Office_chairs':
+            material = Office_chairs_material            
+        elif coll.name == 'Dining_chairs':
+            material = Dining_chairs_material            
+        elif coll.name == 'Arm_chairs':
+            material = Arm_chairs_material            
+        elif coll.name == 'Bar_Stools':
+            material = Bar_Stools_material            
+        elif coll.name == 'printer':
+            material = printer_material            
+        elif coll.name == 'Sofas':
+            material = Sofas_material            
+        elif coll.name == 'outdoor_bench':
+            material = outdoor_bench_material            
+        elif coll.name == 'outdoor_chair':
+            material = outdoor_chair_material            
+        elif coll.name == 'Storage':
+            material = Storage_material            
+        elif coll.name == 'Sideboard':
+            material = Sideboard_material            
         else:
             material = bpy.data.materials.new(name=coll.name)
             material.diffuse_color = (0.8, 0.8, 0.8, 1.0)  # Light gray color
@@ -773,18 +918,185 @@ def assign_collection_materials():
         for obj in coll.objects:
             if obj.type == 'MESH':
                 obj.data.materials.clear()
-                if 'door' in obj.name.lower():  # Check if 'door' is in the object's name
-                    obj.data.materials.append(gray_material)
-                else:
-                    obj.data.materials.append(material)
+                obj.data.materials.append(material)
+
+def hide_collection(collection_name):
+    collection = bpy.data.collections.get(collection_name)
+    if collection:
+        collection.hide_viewport = True
+        collection.hide_render = True
+    else:
+        print(f"Collection '{collection_name}' not found.")
+
+def setup_hdri():
+    # Path to your HDRI image
+    strDirectory = os.path.join(os.path.dirname(__file__), config.HDRI_DIRECTORY)        
+    hdri_path = os.path.join(strDirectory, "startup.hdr")
+
+
+    # Create a new world if there is none
+    if not bpy.data.worlds:
+        bpy.context.scene.world = bpy.data.worlds.new("World")
+        
+    # Set the world to use nodes
+    bpy.context.scene.world.use_nodes = True
+
+    # Get the tree
+    tree = bpy.context.scene.world.node_tree
+
+    # Clear all nodes to start clean
+    tree.nodes.clear()
+
+    # Add the needed nodes
+    links = tree.links
+    tex_coord = tree.nodes.new(type='ShaderNodeTexCoord')
+    mapping = tree.nodes.new(type='ShaderNodeMapping')
+    texture = tree.nodes.new(type='ShaderNodeTexEnvironment')
+    bg = tree.nodes.new(type='ShaderNodeBackground')
+    output = tree.nodes.new(type='ShaderNodeOutputWorld')
+
+    # Set the HDRI image
+    texture.image = bpy.data.images.load(hdri_path)
+
+    # Connect the nodes
+    links.new(tex_coord.outputs['Generated'], mapping.inputs['Vector'])
+    links.new(mapping.outputs['Vector'], texture.inputs['Vector'])
+    links.new(texture.outputs['Color'], bg.inputs['Color'])
+    links.new(bg.outputs['Background'], output.inputs['Surface'])
+
+    # Set the world strength
+    bg.inputs['Strength'].default_value = 1.0  # Set to desired strength
+
+    # Update the scene, if necessary
+    bpy.context.view_layer.update()
+
+def set_transparent_background():
+    # Set the film to transparent
+    bpy.context.scene.render.film_transparent = True
+    
+    # Set transparent glass
+    bpy.context.scene.cycles.film_transparent_glass = True
+
+def setup_camera():
+    # Define scene and camera
+    scene = bpy.context.scene
+
+    # Remove camera if it already exists
+    if "Camera" in bpy.data.objects:
+        bpy.data.objects.remove(bpy.data.objects["Camera"], do_unlink=True)
+
+    # Add new camera
+    camera_data = bpy.data.cameras.new(name="Camera")
+    camera = bpy.data.objects.new('Camera', camera_data)
+    bpy.context.collection.objects.link(camera)
+
+    # Define camera parameters
+    camera.rotation_euler = (math.radians(90), 0, math.radians(180))
+
+    # Check if the 'ifc' collection exists in the scene
+    if 'ifc' in bpy.data.collections:
+        ifc_collection = bpy.data.collections['ifc']
+    else:
+        print("Collection 'ifc' does not exist in the scene.")
+        return
+
+    # Create empty mesh and object
+    mesh = bpy.data.meshes.new(name="EmptyMesh")
+    empty_object = bpy.data.objects.new("EmptyObject", mesh)
+    bpy.context.collection.objects.link(empty_object)
+
+    # Create bmesh object and link it to the mesh
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+
+    # Add all mesh object's vertices in the 'ifc' collection to the bmesh
+    for obj in ifc_collection.objects:
+        if obj.type == 'MESH':
+            transformed = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+            for vert in transformed:
+                bm.verts.new(vert)
+
+    # Update the bmesh to the mesh
+    bm.to_mesh(mesh)
+    bm.free()
+
+    # Calculate center and dimensions of the bounding box
+    bbox_center = 0.125 * sum((Vector(b) for b in empty_object.bound_box), Vector())
+    bbox_dim = empty_object.dimensions
+
+    # Calculate camera distance
+    camera_distance = max(bbox_dim.x, bbox_dim.y) / (2 * math.tan(camera_data.angle / 2))
+
+    # Position camera
+    camera.location = bbox_center
+    camera.location.z += camera_distance + 10
+    camera.rotation_euler = (0.0, 0.0, 0.0)  # Rotate the camera 180 degrees around the z axis
+
+
+    # Delete the temporary object
+    bpy.data.objects.remove(empty_object, do_unlink=True)
+
+
+
+def setup_render():
+    # Switch the render engine to Cycles
+    bpy.context.scene.render.engine = 'CYCLES'
+    
+    # Switch the viewport shading to Rendered
+    for area in bpy.context.screen.areas:
+        if area.type == 'VIEW_3D':
+            for space in area.spaces:
+                if space.type == 'VIEW_3D':
+                    space.shading.type = 'RENDERED'    
+
+    # Hide the 'dxf' collection
+    hide_collection('dxf')  
+
+    # Set the render device to GPU if available
+    bpy.context.scene.cycles.device = 'GPU'
+    
 
 def create3D_Objects():
     print("Create 3d objects")
     create_3Dobject_from_dxf_collection(['TaskChair', 'ConferenceChair', 'Genericofficechair'],'office_chair', 'Office_chairs')       
     create_3Dobject_from_dxf_collection(['DiningChair', 'GenericChair'],'dining_chair', 'Dining_chairs')        
-    create_3Dobject_from_dxf_collection(['LoungeChair', 'Armchair'],'arm_chair', 'Arm_chairs')
+    create_3Dobject_from_dxf_collection(['LoungeChair', 'Armchair'],'arm_chair', 'Arm_chairs', ignoreKeyword='Outdoor')
     create_3Dobject_from_dxf_collection('BarStool','bar_stool', 'Bar_Stools')
     create_3Dobject_from_dxf_collection('Printer','printer', 'printer')
     create_3Dobject_from_dxf_collection('Sofa','couch_76x76x45_round', 'Sofas', ignoreKeyword='Corner')
     create_3Dobject_from_dxf_collection('CornerSofa','couch_76x76x45_round_corner', 'Sofas')
+    create_3Dobject_from_dxf_collection('OutdoorBench','outdoor_bench', 'outdoor_bench')
+    create_3Dobject_from_dxf_collection(['OutdoorChair', 'OutdoorArmchair'],'outdoor_chair', 'outdoor_chair')
     print("Create 3d objects done")
+
+def render_scene(resolution_x, resolution_y):
+    global last_imported_dxf_directory, last_imported_dxf_filename
+    # Set up rendering properties
+    bpy.context.scene.render.engine = 'CYCLES'
+    bpy.context.scene.render.image_settings.file_format = 'PNG'
+    bpy.context.scene.render.resolution_x = resolution_x
+    bpy.context.scene.render.resolution_y = resolution_y
+    bpy.context.scene.render.resolution_percentage = 100
+   
+    # Get the absolute path and filename from the BIMProperties
+    abs_path = bpy.data.scenes["Scene"].BIMProperties.ifc_file
+    directory = os.path.dirname(abs_path)
+    filename = os.path.splitext(os.path.basename(abs_path))[0]  # Remove the extension    
+
+    # Remove the .dxf extension
+    filename = os.path.splitext(filename)[0]+"_3D-render_"+str(resolution_x)+"x"+str(resolution_y)
+
+    # Set the filepath for the rendered image
+    bpy.context.scene.render.filepath = os.path.join(directory, filename)
+
+    # Set the active camera
+    if 'Camera' in bpy.data.objects:
+        bpy.context.scene.camera = bpy.data.objects['Camera']
+    else:
+        print("No camera found in the scene.")
+        return
+
+    print("Start rendering to" + str(bpy.context.scene.render.filepath))
+    # Render the scene
+    bpy.ops.render.render(write_still=True)
+    print("Finish renderer")

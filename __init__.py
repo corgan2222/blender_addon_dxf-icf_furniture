@@ -4,7 +4,7 @@ from . import ui
 bl_info = {
     "name": "ESEC DXF-IFC 3D Floorplan Tool",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 7, 8),
+    "version": (1, 8, 0),
     "blender": (3, 5, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Create furniture like tables and chairs from a DXF plan, exported from Archiologic.",
@@ -32,3 +32,4 @@ def unregister():
 
 if __name__ == '__main__':
     register()
+
