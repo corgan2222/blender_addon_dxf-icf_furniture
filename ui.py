@@ -11,7 +11,7 @@ from . import config
 
 # Panel class
 class ESEC_PT_panel(bpy.types.Panel):
-    bl_label = "ESEC 3D Floorplan Creator v 1.8.0" #+ str(bl_info['version'])
+    bl_label = "ESEC 3D Floorplan Creator v 1.8.1" #+ str(bl_info['version'])
     bl_idname = "ESEC_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -37,7 +37,7 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout.separator()        
         layout.operator("wm.save_as_esec", icon="FILE_TICK")        
         layout.operator("wm.export_obj_esec", icon='EXPORT')
-        layout.operator("wm.export_obj_esec", icon='EXPORT')
+        layout.operator("esec.export_keyshot_esec", icon='EXPORT')
         layout.separator()
         layout.operator("esec.setup_renderer", icon='SHADING_RENDERED')
         layout.operator("esec.render", icon='RENDERLAYERS')
@@ -220,6 +220,15 @@ class EsecExportObjOperator(bpy.types.Operator):
         bpy.ops.wm.obj_export('INVOKE_DEFAULT')
         return {'FINISHED'}
 
+class EsecExportKeyShotOperator(bpy.types.Operator):
+    bl_idname = "esec.export_keyshot_esec"
+    bl_label = "Export to Keyshot"
+    bl_description = "Export the current scene to Keyshot. Keyshot Plugin required."
+
+    def execute(self, context):
+        bpy.ops.keyshot.send_to_keyshot()
+        return {'FINISHED'}
+
 class EsecSubmenu(bpy.types.Menu):
     bl_label = "Tools"
     bl_idname = "OBJECT_MT_esec_submenu"
@@ -309,6 +318,7 @@ def register():
     bpy.utils.register_class(ESEC_OT_assign_materials)
     bpy.utils.register_class(ESEC_OT_setup_renderer)
     bpy.utils.register_class(ESEC_OT_render)
+    bpy.utils.register_class(EsecExportKeyShotOperator)
 
 
     wm = bpy.context.window_manager
@@ -348,6 +358,7 @@ def unregister():
     bpy.utils.unregister_class(ESEC_OT_assign_materials)
     bpy.utils.unregister_class(ESEC_OT_setup_renderer)
     bpy.utils.unregister_class(ESEC_OT_render)
+    bpy.utils.unregister_class(EsecExportKeyShotOperator)
 
     for km, kmi in addon_keymaps:
         km.keymap_items.remove(kmi)
