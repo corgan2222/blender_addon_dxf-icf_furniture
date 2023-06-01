@@ -11,7 +11,7 @@ from . import config
 
 # Panel class
 class ESEC_PT_panel(bpy.types.Panel):
-    bl_label = "ESEC 3D Floorplan Creator v 1.8.1" #+ str(bl_info['version'])
+    bl_label = "ESEC 3D Floorplan Creator v 1.8.2" #+ str(bl_info['version'])
     bl_idname = "ESEC_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -866,6 +866,47 @@ def create_material(material_name, base_color, specular, roughness):
     
     return material
 
+#color helper
+# credtis to https://gist.github.com/CGArtPython
+
+def hex_color_to_rgba(hex_color):
+    # remove the leading '#' symbol if it is set
+    if hex_color[1] == "#":
+        hex_color = hex_color[1:]
+
+    # extracting the Red color component - RRxxxx
+    red = int(hex_color[:2], 16)
+    # dividing by 255 to get a number between 0.0 and 1.0
+    srgb_red = red / 255
+    linear_red = convert_srgb_to_linear_rgb(srgb_red)
+
+    # extracting the Green color component - xxGGxx
+    green = int(hex_color[2:4], 16)
+    # dividing by 255 to get a number between 0.0 and 1.0
+    srgb_green = green / 255
+    linear_green = convert_srgb_to_linear_rgb(srgb_green)
+
+    # extracting the Blue color component - xxxxBB
+    blue = int(hex_color[4:6], 16)
+    # dividing by 255 to get a number between 0.0 and 1.0
+    srgb_blue = blue / 255
+    linear_blue = convert_srgb_to_linear_rgb(srgb_blue)
+
+    return tuple([linear_red, linear_green, linear_blue, 1.0])
+
+
+def convert_srgb_to_linear_rgb(srgb_color_component: float) -> float:
+    """
+    Converting from sRGB to Linear RGB
+    based on https://en.wikipedia.org/wiki/SRGB#From_sRGB_to_CIE_XYZ
+    """
+    if srgb_color_component <= 0.04045:
+        linear_color_component = srgb_color_component / 12.92
+    else:
+        linear_color_component = math.pow((srgb_color_component + 0.055) / 1.055, 2.4)
+
+    return linear_color_component
+
 def assign_collection_materials():
     # Remove all materials
     for material in bpy.data.materials:
@@ -873,7 +914,7 @@ def assign_collection_materials():
 
     Windows_material        = create_glass_material()
     ifc_material            = create_material("ifc", (0.8, 0.8, 0.8, 1), 0, 0.1)
-    floor_material          = create_material("Floor", (0.4, 0.4, 0.4, 1), 0, 0.1)
+    floor_material          = create_material("Floor", (1, 1, 1, 1), 0, 0.1)
     Doors_material          = create_material("Doors", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
     table_material          = create_material("Table", (0.9, 0.9, 0.9, 1), 0.8, 0.1)    
     Office_chairs_material  = create_material("Office_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
@@ -886,6 +927,14 @@ def assign_collection_materials():
     outdoor_chair_material  = create_material("outdoor_chair", (0.6, 0.6, 0.6, 1), 0.15, 0.15)
     Storage_material        = create_material("Storage", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
     Sideboard_material      = create_material("Sideboard", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+
+    #custom materials
+
+    create_material("Floor_pale_dark_blue", hex_color_to_rgba("E0E9F2"), 0, 0.1)
+    create_material("Floor_pale_red", hex_color_to_rgba("F8E0E4"), 0, 0.1)
+    create_material("Floor_pale_orange", hex_color_to_rgba("FDEFD9"), 0, 0.1)
+    create_material("Floor_pale_light_green", hex_color_to_rgba("E0EED2"), 0, 0.1)
+    create_material("Floor_pale_light_blue", hex_color_to_rgba("E0F2F9"), 0, 0.1)
        
     # Assign materials to collections
     for coll in bpy.data.collections:
