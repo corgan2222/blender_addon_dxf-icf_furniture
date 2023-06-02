@@ -11,7 +11,7 @@ from . import config
 
 # Panel class
 class ESEC_PT_panel(bpy.types.Panel):
-    bl_label = "ESEC 3D Floorplan Creator v 1.8.2" #+ str(bl_info['version'])
+    bl_label = "ESEC 3D Floorplan Creator v 1.8.3" #+ str(bl_info['version'])
     bl_idname = "ESEC_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -87,7 +87,7 @@ class OBJECT_OT_DeleteFurnitureCollection(bpy.types.Operator):
 
     def execute(self, context):
 
-        collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 'Sofas']
+        collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 'Sofas', 'outdoor_bench', 'outdoor_chair', 'Storage', 'Sideboard', 'bathroom' ]
 
         for collection_name in collections:
             collection = bpy.data.collections.get(collection_name)
@@ -109,7 +109,7 @@ class ESEC_OT_function_1(bpy.types.Operator):
         #function_1(self, context)
         print("Step 1 - prepare DXF")
         move_objects_to_dxf()
-        delete_unwanted_objects("dxf")
+        move_unwanted_objects("dxf")
         rename_objects_dxf("dxf")
         print("Step 1 done")        
         return {'FINISHED'}
@@ -168,7 +168,7 @@ class ESEC_OT_function_5(bpy.types.Operator):
     def execute(self, context):
         print("Rock'n'Roll")
         move_objects_to_dxf()
-        delete_unwanted_objects("dxf")
+        move_unwanted_objects("dxf")
         rename_objects_dxf("dxf")
         move_objects_to_ifc()
         remove_collection("IfcProject/None")
@@ -413,26 +413,38 @@ def move_objects_to_dxf():
             print(f"Moved '{obj.name}' to the 'dxf' collection.")
 
 
-def delete_unwanted_objects(collection_name):
-    collection = bpy.data.collections.get(collection_name)
-    if not collection:
+def move_unwanted_objects(collection_name):
+    source_collection = bpy.data.collections.get(collection_name)
+    if not source_collection:
         print(f"Collection '{collection_name}' not found.")
         return
 
-    allowed_keywords = ['Desk', 'Chair', 'chair', 'Sofa', 'Table', 'Storage', 'Sideboard', 'Bed', 'Stool', 'Printer', 'Bench']
-    objects_to_delete = []
+    # Create the target collection if it doesn't exist
+    orphan_collection = bpy.data.collections.get('dxf_orphan')
+    if not orphan_collection:
+        orphan_collection = bpy.data.collections.new(name='dxf_orphan')
+        bpy.context.scene.collection.children.link(orphan_collection)
+        print(f"Created new collection: 'dxf_orphan'")
 
-    # Find objects to delete
-    for obj in collection.objects:
+    allowed_keywords = ['Desk', 'Chair', 'chair', 'Sofa', 'Table', 'Storage', 'Sideboard', 'Bed', 'Stool', 'Printer', 'Bench', 'Toilet', 'Urinal', 'Sink']
+    objects_to_move = []
+
+    # Find objects to move
+    for obj in source_collection.objects:
         if not any(keyword in obj.name for keyword in allowed_keywords):
-            objects_to_delete.append(obj.name)
+            objects_to_move.append(obj)
 
-    # Delete objects
-    for obj_name in objects_to_delete:
-        obj = bpy.data.objects.get(obj_name)
-        if obj:
-            bpy.data.objects.remove(obj, do_unlink=True)
-            print(f"Deleted object: {obj_name}")
+    # Move objects
+    for obj in objects_to_move:
+        # Unlink from the source collection
+        source_collection.objects.unlink(obj)
+        # Link to the target collection
+        orphan_collection.objects.link(obj)
+        print(f"Moved object: {obj.name}")
+
+    # Hide the orphan collection
+    orphan_collection.hide_viewport = True
+    print(f"Collection 'dxf_orphan' is now hidden.")
 
 def rename_objects_dxf(collection_name):
     collection = bpy.data.collections.get(collection_name)
@@ -912,64 +924,37 @@ def assign_collection_materials():
     for material in bpy.data.materials:
         bpy.data.materials.remove(material)
 
-    Windows_material        = create_glass_material()
-    ifc_material            = create_material("ifc", (0.8, 0.8, 0.8, 1), 0, 0.1)
-    floor_material          = create_material("Floor", (1, 1, 1, 1), 0, 0.1)
-    Doors_material          = create_material("Doors", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
-    table_material          = create_material("Table", (0.9, 0.9, 0.9, 1), 0.8, 0.1)    
-    Office_chairs_material  = create_material("Office_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
-    Dining_chairs_material  = create_material("Dining_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
-    Arm_chairs_material     = create_material("Arm_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
-    Bar_Stools_material     = create_material("Bar_Stools", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
-    printer_material        = create_material("printer", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
-    Sofas_material          = create_material("Sofas", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
-    outdoor_bench_material  = create_material("outdoor_bench", (0.6, 0.6, 0.6, 1), 0.15, 0.15)
-    outdoor_chair_material  = create_material("outdoor_chair", (0.6, 0.6, 0.6, 1), 0.15, 0.15)
-    Storage_material        = create_material("Storage", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
-    Sideboard_material      = create_material("Sideboard", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
-
     #custom materials
-
     create_material("Floor_pale_dark_blue", hex_color_to_rgba("E0E9F2"), 0, 0.1)
     create_material("Floor_pale_red", hex_color_to_rgba("F8E0E4"), 0, 0.1)
     create_material("Floor_pale_orange", hex_color_to_rgba("FDEFD9"), 0, 0.1)
     create_material("Floor_pale_light_green", hex_color_to_rgba("E0EED2"), 0, 0.1)
     create_material("Floor_pale_light_blue", hex_color_to_rgba("E0F2F9"), 0, 0.1)
-       
+
+    # Create materials
+    materials = {
+        "ifc": create_material("ifc", (0.8, 0.8, 0.8, 1), 0, 0.1),
+        "Floor": create_material("Floor", (1, 1, 1, 1), 0, 0.1),
+        "Doors": create_material("Doors", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "Windows": create_glass_material(),
+        "tables": create_material("Table", (0.9, 0.9, 0.9, 1), 0.8, 0.1),
+        "Office_chairs": create_material("Office_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "Dining_chairs": create_material("Dining_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "Arm_chairs": create_material("Arm_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "Bar_Stools": create_material("Bar_Stools", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "printer": create_material("printer", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "Sofas": create_material("Sofas", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "outdoor_bench": create_material("outdoor_bench", (0.75, 0.75, 0.75, 1), 0.15, 0.15),
+        "outdoor_chair": create_material("outdoor_chair", (0.75, 0.75, 0.75, 1), 0.15, 0.15),
+        "Storage": create_material("Storage", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "Sideboard": create_material("Sideboard", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "Bathroom": create_material("Bathroon", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+    }
+
     # Assign materials to collections
     for coll in bpy.data.collections:
-
-        #select the correct material, based on the collection name
-        if coll.name == "ifc":
-            material = ifc_material
-        elif coll.name == 'Floors':
-            material = floor_material            
-        elif coll.name == 'Doors':
-            material = Doors_material            
-        elif coll.name == 'Windows':
-            material = Windows_material
-        elif coll.name == 'tables':
-            material = table_material  
-        elif coll.name == 'Office_chairs':
-            material = Office_chairs_material            
-        elif coll.name == 'Dining_chairs':
-            material = Dining_chairs_material            
-        elif coll.name == 'Arm_chairs':
-            material = Arm_chairs_material            
-        elif coll.name == 'Bar_Stools':
-            material = Bar_Stools_material            
-        elif coll.name == 'printer':
-            material = printer_material            
-        elif coll.name == 'Sofas':
-            material = Sofas_material            
-        elif coll.name == 'outdoor_bench':
-            material = outdoor_bench_material            
-        elif coll.name == 'outdoor_chair':
-            material = outdoor_chair_material            
-        elif coll.name == 'Storage':
-            material = Storage_material            
-        elif coll.name == 'Sideboard':
-            material = Sideboard_material            
+        if coll.name in materials:
+            material = materials[coll.name]
         else:
             material = bpy.data.materials.new(name=coll.name)
             material.diffuse_color = (0.8, 0.8, 0.8, 1.0)  # Light gray color
@@ -1127,6 +1112,9 @@ def create3D_Objects():
     create_3Dobject_from_dxf_collection('CornerSofa','couch_76x76x45_round_corner', 'Sofas')
     create_3Dobject_from_dxf_collection('OutdoorBench','outdoor_bench', 'outdoor_bench')
     create_3Dobject_from_dxf_collection(['OutdoorChair', 'OutdoorArmchair'],'outdoor_chair', 'outdoor_chair')
+    create_3Dobject_from_dxf_collection('Sink','sink', 'bathroom')
+    create_3Dobject_from_dxf_collection('Toilet','toilet', 'bathroom')
+    create_3Dobject_from_dxf_collection('Urinal','urinal', 'bathroom')
     print("Create 3d objects done")
 
 def render_scene(resolution_x, resolution_y):
