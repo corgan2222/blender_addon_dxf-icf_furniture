@@ -42,13 +42,21 @@ class ESECAddonProperties(bpy.types.PropertyGroup):
         max=2
     )    
 
-    table_margin: bpy.props.FloatProperty(
-        name="Margin between tables",
+    desk_table_margin: bpy.props.FloatProperty(
+        name="Margin between desks",
         description="Margin between tables",
         default=0.02,
         min=0,
         max=0.5
-    )    
+    )
+
+    meeting_table_margin: bpy.props.FloatProperty(
+        name="Margin between tables",
+        description="Margin between tables",
+        default=0.00,
+        min=0,
+        max=0.5
+    )       
 
     sideboard_height2: bpy.props.FloatProperty(
         name="Sideboard Scale Z",
