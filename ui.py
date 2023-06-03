@@ -3,15 +3,30 @@ import os
 import math
 import os
 import re
+import inspect
 import bmesh
 from mathutils import Vector
 from bpy.types import Panel
 from .bl_info_module import bl_info_version
 from . import config
 
+def get_version_from_init():
+    # Get the directory containing the current script
+    current_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+
+    # Construct the full path to the __init__.py file
+    init_file_path = os.path.join(current_dir, "__init__.py")
+
+    with open(init_file_path, "r") as file:
+        for line in file:
+            match = re.search(r'"version": \((\d+), (\d+), (\d+)\)', line)
+            if match:
+                return '.'.join(match.groups())
+    return None
+
 # Panel class
 class ESEC_PT_panel(bpy.types.Panel):
-    bl_label = "ESEC 3D Floorplan Creator " + bl_info_version
+    bl_label = "ESEC 3D Floorplan Creator " + get_version_from_init()
     bl_idname = "ESEC_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -61,6 +76,7 @@ class ESEC_PT_panel(bpy.types.Panel):
             box.prop(props, "storage_height", text="Storage Height")
             box.prop(props, "sideboard_height", text="Sideboard Height")
             box.prop(props, "table_margin", text="Table margin")   
+
 
 
 class OBJECT_OT_DeleteIfcCollection(bpy.types.Operator):
