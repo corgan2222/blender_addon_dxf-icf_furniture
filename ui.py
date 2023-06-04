@@ -3,15 +3,30 @@ import os
 import math
 import os
 import re
+import inspect
 import bmesh
 from mathutils import Vector
 from bpy.types import Panel
-
+from .bl_info_module import bl_info_version
 from . import config
+
+def get_version_from_init():
+    # Get the directory containing the current script
+    current_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+
+    # Construct the full path to the __init__.py file
+    init_file_path = os.path.join(current_dir, "__init__.py")
+
+    with open(init_file_path, "r") as file:
+        for line in file:
+            match = re.search(r'"version": \((\d+), (\d+), (\d+)\)', line)
+            if match:
+                return '.'.join(match.groups())
+    return None
 
 # Panel class
 class ESEC_PT_panel(bpy.types.Panel):
-    bl_label = "ESEC 3D Floorplan Creator v 1.8.4" #+ str(bl_info['version'])
+    bl_label = "ESEC 3D Floorplan Creator " + get_version_from_init()
     bl_idname = "ESEC_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -21,37 +36,48 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout = self.layout
         props = context.scene.esec_addon_props
 
-        layout.operator("import_scene.dxf_esec", icon="IMPORT") 
-        layout.operator("import_ifc.bim_esec", icon="IMPORT") 
+        layout.label(text="Import")
+        row_01 = layout.row(align=True)  # align=True puts operators side by side
+        row_01.operator("import_scene.dxf_esec", icon="IMPORT") 
+        row_01.operator("import_ifc.bim_esec", icon="IMPORT") 
         layout.separator()
+        layout.label(text="Process")
         layout.operator("esec.function_1", icon="FILE_VOLUME")
         layout.operator("esec.function_2", icon="FILE_3D")
         layout.operator("esec.function_3", icon="SNAP_VERTEX")
-        layout.operator("esec.create_3d_chairs", icon="OUTLINER_OB_POINTCLOUD")
-        layout.prop(context.scene, "use_high_poly_models")
+        layout.operator("esec.create_3d_chairs", icon="OUTLINER_OB_POINTCLOUD")        
         layout.operator("esec.create_storage", icon="SNAP_FACE")
         layout.operator("esec.create_sideboard", icon="SNAP_EDGE")
         layout.operator("esec.assign_materials", icon="IMAGE_RGB_ALPHA")
         layout.separator()
         layout.operator("esec.function_5", icon="HAND")
         layout.separator()        
-        layout.operator("wm.save_as_esec", icon="FILE_TICK")        
-        layout.operator("wm.export_obj_esec", icon='EXPORT')
+        layout.label(text="Save/Export")
+        row_02 = layout.row(align=True)  # align=True puts operators side by side
+        row_02.operator("wm.save_as_esec", icon="FILE_TICK")        
+        row_02.operator("wm.export_obj_esec", icon='EXPORT')
         layout.operator("esec.export_keyshot_esec", icon='EXPORT')
         layout.separator()
-        layout.operator("esec.setup_renderer", icon='SHADING_RENDERED')
-        layout.operator("esec.render", icon='RENDERLAYERS')
+        layout.label(text="Render")
+        row_03 = layout.row(align=True)  # align=True puts operators side by side
+        row_03.operator("esec.setup_renderer", icon='SHADING_RENDERED')
+        row_03.operator("esec.render", icon='RENDERLAYERS')
         layout.separator()        
         layout.menu(EsecSubmenu.bl_idname)
         layout.separator()   
-        layout.label(text="Settings")        
-        layout.prop(props, "table_height", text="Table Height")
-        layout.prop(props, "chair_height", text="Chair Height")  
-        layout.prop(props, "stool_scale", text="Chairs Scale")        
-        layout.prop(props, "storage_height", text="Storage Height")        
-        layout.prop(props, "sideboard_height", text="Sideboard Height")                
-        layout.prop(props, "desk_table_margin", text="Desk Table margin")
-        layout.prop(props, "meeting_table_margin", text="Meeting Table margin")    
+        box = layout.box()
+        row = box.row()
+        row.prop(props, "show_settings", icon="TRIA_DOWN" if props.show_settings else "TRIA_RIGHT", emboss=False)
+        if props.show_settings:
+            box.prop(context.scene, "use_high_poly_models")
+            box.prop(props, "table_height", text="Table Height")
+            box.prop(props, "chair_height", text="Chair Height")
+            box.prop(props, "stool_scale", text="Chairs Scale")
+            box.prop(props, "storage_height", text="Storage Height")
+            box.prop(props, "sideboard_height", text="Sideboard Height")
+            box.prop(props, "table_margin", text="Table margin")   
+
+
 
 class OBJECT_OT_DeleteIfcCollection(bpy.types.Operator):
     bl_idname = "object.delete_ifc_collection"
@@ -106,6 +132,11 @@ class ESEC_OT_function_1(bpy.types.Operator):
     bl_label = "Step 1 - Prepare DXF"
     bl_description = "Prepares the DXF. Move all objects to the 'dxf' collection, delete unwanted objects and rename the objects."
 
+    @classmethod
+    def poll(cls, context):
+        # This operator is available only if the 'dxf' collection exists
+        return 'dxf' in bpy.data.collections
+
     def execute(self, context):
         #function_1(self, context)
         print("Step 1 - prepare DXF")
@@ -119,6 +150,11 @@ class ESEC_OT_function_2(bpy.types.Operator):
     bl_idname = "esec.function_2"
     bl_label = "Step 2 - Prepare IFC"
     bl_description = "Prepares the IFC file. Move all objects to the 'ifc' collection, remove the 'IfcProject' collection and move the windows to the 'Windows' collection."
+
+    @classmethod
+    def poll(cls, context):
+        # This operator is available only if the 'IfcProject/None' collection exists
+        return 'IfcProject/None' in bpy.data.collections
 
     def execute(self, context):
         print("Step 2 - prepare IFC")
@@ -135,6 +171,11 @@ class ESEC_OT_function_3(bpy.types.Operator):
     bl_label = "Step 3 - Create tables"
     bl_description = "Create tables from the DXF collection."
 
+    @classmethod
+    def poll(cls, context):
+        # This operator is available only if the 'dxf' collection exists
+        return 'dxf' in bpy.data.collections
+
     def execute(self, context):
         print("Step 3 - create tables")
         #create_tabletops_from_dxf_collection()   
@@ -147,6 +188,11 @@ class ESEC_OT_create_simple_chairs(bpy.types.Operator):
     bl_label = "Step 4 - Create simple chairs"
     bl_description = "Create simple chairs (just circles) from the DXF collection."
 
+    @classmethod
+    def poll(cls, context):
+        # This operator is available only if the 'dxf' collection exists
+        return 'dxf' in bpy.data.collections
+
     def execute(self, context):
         print("Step 4 - create stools")
         create_stools_from_dxf_collection()
@@ -158,6 +204,11 @@ class ESEC_OT_create_3d_chairs(bpy.types.Operator):
     bl_label = "Step 4 - Create 3D Objects"
     bl_description = "Create chairs, stools and sofas from the DXF collection."
 
+    @classmethod
+    def poll(cls, context):
+        # This operator is available only if the 'dxf' collection exists
+        return 'dxf' in bpy.data.collections
+
     def execute(self, context):
         create3D_Objects()
         return {'FINISHED'}
@@ -167,8 +218,15 @@ class ESEC_OT_function_5(bpy.types.Operator):
     bl_label = "Step 1-7 at once"
     bl_description = "Execute all steps at once"
 
+    @classmethod
+    def poll(cls, context):
+        # This operator is available only if the 'dxf' collection exists
+        # and there is any collection with 'ifc' in its name.
+        return 'dxf' in bpy.data.collections and any('ifc' in coll.name.lower() for coll in bpy.data.collections)
+ 
+
     def execute(self, context):
-        print("Rock'n'Roll")
+        print("Rock'n'Roll")      
         move_objects_to_dxf()
         move_unwanted_objects("dxf")
         rename_objects_dxf("dxf")
@@ -188,26 +246,45 @@ class ESEC_OT_function_5(bpy.types.Operator):
 
 class IMPORT_OT_dxf(bpy.types.Operator):
     bl_idname = "import_scene.dxf_esec"
-    bl_label = "Import DXF"
-    bl_description = "Import the DXF file exported from Archiologic"
-    
+    bl_label = "DXF"
+    bl_description = "Import the DXF file exported from Archiologic. Official Blender DXF importer addon required."
+
+    @classmethod
+    def poll(cls, context):        
+        try:
+            return bpy.ops.import_scene.dxf.poll() is not None
+        except AttributeError:
+            return False
+
     def execute(self, context):
         global last_imported_dxf_directory, last_imported_dxf_filename
         bpy.ops.import_scene.dxf('INVOKE_DEFAULT')
+
+        if 'dxf' not in bpy.data.collections:
+            dxf_collection = bpy.data.collections.new('dxf')
+            bpy.context.scene.collection.children.link(dxf_collection)
+
         return {'FINISHED'}
 
 class IMPORT_OT_ifc(bpy.types.Operator):
     bl_idname = "import_ifc.bim_esec"
-    bl_label = "Import IFC"
-    bl_description = "Import the IFC file exported from Archiologic"
+    bl_label = "IFC"
+    bl_description = "Import the IFC file exported from Archiologic. Blenderbim Addon required. Download from https://blenderbim.org/download.html."
     
+    @classmethod
+    def poll(cls, context):        
+        try:
+            return bpy.ops.import_ifc.bim.poll() is not None
+        except AttributeError:
+            return False
+
     def execute(self, context):
         bpy.ops.import_ifc.bim('INVOKE_DEFAULT')
         return {'FINISHED'}
 
 class EsecSaveAsOperator(bpy.types.Operator):
     bl_idname = "wm.save_as_esec"
-    bl_label = "Save As Blender"
+    bl_label = "Blender"
     bl_description = "Save the current file with a new name"
 
     def execute(self, context):
@@ -216,7 +293,7 @@ class EsecSaveAsOperator(bpy.types.Operator):
 
 class EsecExportObjOperator(bpy.types.Operator):
     bl_idname = "wm.export_obj_esec"
-    bl_label = "Export OBJ"
+    bl_label = "OBJ"
     bl_description = "Export the current scene as an OBJ file"
 
     def execute(self, context):
@@ -225,8 +302,16 @@ class EsecExportObjOperator(bpy.types.Operator):
 
 class EsecExportKeyShotOperator(bpy.types.Operator):
     bl_idname = "esec.export_keyshot_esec"
-    bl_label = "Export to Keyshot"
-    bl_description = "Export the current scene to Keyshot. Keyshot Plugin required."
+    bl_label = "send to Keyshot"
+    bl_description = "Export the current scene to Keyshot. Keyshot Plugin required. (https://www.keyshot.com/resources/downloads/plugins)"    
+
+    @classmethod
+    def poll(cls, context):
+        # Check if the 'send_to_keyshot' operator is available
+        try:
+            return bpy.ops.keyshot.send_to_keyshot.poll() is not None
+        except AttributeError:
+            return False
 
     def execute(self, context):
         bpy.ops.keyshot.send_to_keyshot()
@@ -249,6 +334,11 @@ class ESEC_OT_create_storage(bpy.types.Operator):
     bl_label = "Step 5 - Create Storage"
     bl_description = "Create storage from the DXF collection."
 
+    @classmethod
+    def poll(cls, context):
+        # This operator is available only if the 'dxf' collection exists
+        return 'dxf' in bpy.data.collections
+
     def execute(self, context):
         print("Create Storage")
         create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
@@ -259,6 +349,11 @@ class ESEC_OT_create_sideboard(bpy.types.Operator):
     bl_idname = "esec.create_sideboard"
     bl_label = "Step 6 - Create Sideboard"
     bl_description = "Create sideboard from the DXF collection."
+
+    @classmethod
+    def poll(cls, context):
+        # This operator is available only if the 'dxf' collection exists
+        return 'dxf' in bpy.data.collections
 
     def execute(self, context):
         print("Create sideboards")
@@ -278,7 +373,7 @@ class ESEC_OT_assign_materials(bpy.types.Operator):
 
 class ESEC_OT_setup_renderer(bpy.types.Operator):
     bl_idname = "esec.setup_renderer"
-    bl_label = "Setup Renderer"
+    bl_label = "Setup"
     bl_description = "Setup the GPU cycles renderer. Create a hdri enviroment, set a transparent background and create a camera."
 
     def execute(self, context):
@@ -290,7 +385,7 @@ class ESEC_OT_setup_renderer(bpy.types.Operator):
 
 class ESEC_OT_render(bpy.types.Operator):
     bl_idname = "esec.render"
-    bl_label = "Render Scene"
+    bl_label = "Render"
     bl_description = "Renders the scene with the current settings. Dont forget to create the render enviroment first."
 
     def execute(self, context):
@@ -590,7 +685,7 @@ def create_tabletop_square_from_object(obj,table_type):
         return
 
     # Calculate the bounding box dimensions in local space
-    bbox_dimensions = Vector((max(coord[i] for coord in local_coords) - min(coord[i] for coord in local_coords) for i in range(3)))
+    #bbox_dimensions = Vector((max(coord[i] for coord in local_coords) - min(coord[i] for coord in local_coords) for i in range(3)))
 
     # Calculate the dimensions directly from the transformed vertices
     width = max(v.x for v in local_coords) - min(v.x for v in local_coords)
@@ -599,6 +694,7 @@ def create_tabletop_square_from_object(obj,table_type):
     height = bpy.context.scene.esec_addon_props.table_height
     bpy.ops.mesh.primitive_cube_add(size=1)
     table_top = bpy.context.active_object
+    print(f"Create Table for {obj.name}")
     table_top.name = obj.name + "_TableTop"
 
     # Set the scale of the table_top based on the directly calculated dimensions
@@ -805,10 +901,8 @@ def create_3Dobject_from_dxf_collection(needles, model_name, new_collection_name
         needles = [needles]
     
     if bpy.context.scene.use_high_poly_models:
-        #file_loc = bpy.path.abspath("//models_high\\"+model_name+".obj")
         strDirectory = os.path.join(os.path.dirname(__file__), config.MODELS_HIGH_DIRECTORY)        
     else:
-        #file_loc = bpy.path.abspath("//models_low\\"+model_name+".obj")
         strDirectory = os.path.join(os.path.dirname(__file__), config.MODELS_LOW_DIRECTORY)        
 
     file_loc = os.path.join(strDirectory, model_name + ".obj")

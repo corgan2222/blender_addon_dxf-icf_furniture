@@ -3,3 +3,5 @@
 *.blend
 
 /ongoing
+/__pycache__
+

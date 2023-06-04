@@ -66,6 +66,12 @@ class ESECAddonProperties(bpy.types.PropertyGroup):
         max=2
     )  
 
+    show_settings: bpy.props.BoolProperty(
+        name="Settings",
+        description="Show or hide the settings",
+        default=False,
+    )
+
 #
 # Add additional functions or classes here
 #

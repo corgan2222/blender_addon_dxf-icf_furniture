@@ -4,7 +4,7 @@ bl_info = {
     "version": (1, 0),
     "blender": (2, 93, 0),
     "location": "View3D > Sidebar > ESEC Archiologic Tab",
-    "description": "Addon to import your Archiologic Data",
+    "description": "Addon to import your Archiologic Data directly into Blender.",
     "warning": "",
     "wiki_url": "",
     "category": "3D View",
