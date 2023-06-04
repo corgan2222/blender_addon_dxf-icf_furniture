@@ -75,8 +75,8 @@ class ESEC_PT_panel(bpy.types.Panel):
             box.prop(props, "stool_scale", text="Chairs Scale")
             box.prop(props, "storage_height", text="Storage Height")
             box.prop(props, "sideboard_height", text="Sideboard Height")
-            box.prop(props, "table_margin", text="Table margin")   
-
+            box.prop(props, "desk_table_margin", text="Desk Table margin")   
+            box.prop(props, "meeting_table_margin", text="Meeting Table margin") 
 
 
 class OBJECT_OT_DeleteIfcCollection(bpy.types.Operator):
@@ -178,7 +178,8 @@ class ESEC_OT_function_3(bpy.types.Operator):
 
     def execute(self, context):
         print("Step 3 - create tables")
-        create_tabletops_from_dxf_collection()    
+        #create_tabletops_from_dxf_collection()   
+        create_tabletops_from_dxf_collection()
         print("Step 3 done")
         return {'FINISHED'}
 
@@ -234,7 +235,8 @@ class ESEC_OT_function_5(bpy.types.Operator):
         move_objects_to_new_collection("IfcSlab/Floor", "ifc", "Floors")  
         move_objects_to_new_collection("IfcDoor/Door", "ifc", "Doors")
         move_objects_to_new_collection("IfcWindow/Window", "ifc", "Windows") 
-        create_tabletops_from_dxf_collection()    
+        #create_tabletops_from_dxf_collection()    
+        create_tabletops_from_dxf_collection()
         create3D_Objects()
         create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
         create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height) 
@@ -667,7 +669,7 @@ def remove_window_objects(collection_name):
             bpy.data.objects.remove(obj, do_unlink=True)
             print(f"Removed object: {obj_name}")
 
-def create_tabletop_square_from_object(obj):
+def create_tabletop_square_from_object(obj,table_type):
     # Apply the inverse rotation to each point of the object to align it with the world axes
     inv_rot = obj.rotation_euler.to_matrix().inverted()
 
@@ -696,9 +698,16 @@ def create_tabletop_square_from_object(obj):
     table_top.name = obj.name + "_TableTop"
 
     # Set the scale of the table_top based on the directly calculated dimensions
-    table_top.scale.x = width - bpy.context.scene.esec_addon_props.table_margin
-    table_top.scale.y = depth - bpy.context.scene.esec_addon_props.table_margin
-    table_top.scale.z = 0.025
+
+    match table_type:
+        case "desk":
+            table_top.scale.x = width - bpy.context.scene.esec_addon_props.desk_table_margin
+            table_top.scale.y = depth - bpy.context.scene.esec_addon_props.desk_table_margin
+            table_top.scale.z = 0.025
+        case "table":
+            table_top.scale.x = width - bpy.context.scene.esec_addon_props.meeting_table_margin
+            table_top.scale.y = depth - bpy.context.scene.esec_addon_props.meeting_table_margin
+            table_top.scale.z = 0.025
 
     table_top.location = obj.location
     table_top.location.z = height - 0.025 / 2
@@ -743,23 +752,31 @@ def create_tabletop_rounds_from_object(obj):
     current_collection.objects.unlink(table_top)
     furniture_collection.objects.link(table_top)
 
-
 def create_tabletops_from_dxf_collection():
+    print("create_tabletops_from_dxf_collection_2")
     dxf_collection = bpy.data.collections.get("dxf")
     if dxf_collection:
         for obj in dxf_collection.objects:
-            if "Desk" in obj.name or "desk" in obj.name or "Table" in obj.name or "table" in obj.name:
-                if obj.type == 'CURVE':
-                    shape, num_points = detect_shape(obj)
-                    if shape == 'square':
-                        #print(f"square: {obj.name} - Shape: {shape} - Points: {num_points}")
-                        create_tabletop_square_from_object(obj)
-                    else:
-                        #print(f"circle: {obj.name} - Shape: {shape} - Points: {num_points}")    
-                        create_tabletop_rounds_from_object(obj)
+            obj_name = obj.name.lower()
+
+            if "desk" in obj_name:
+                create_table(obj,"desk")
+            if "table" in obj_name:
+                create_table(obj,"table")
+            else:
+                print("no desk or table in obj.name")
     else:
         print("Collection 'dxf' not found.")
 
+def create_table(dxf_object,table_type):
+    if dxf_object.type == 'CURVE':
+        shape, num_points = detect_shape(dxf_object)
+        if shape == 'square':
+            #print(f"square: {obj.name} - Shape: {shape} - Points: {num_points}")
+            create_tabletop_square_from_object(dxf_object,table_type)
+        else:
+            #print(f"circle: {obj.name} - Shape: {shape} - Points: {num_points}")    
+            create_tabletop_rounds_from_object(dxf_object)    
 
 def create_stool_from_object(obj, furniture_collection):
     width, depth, _ = obj.dimensions
