@@ -75,8 +75,8 @@ class ESEC_PT_panel(bpy.types.Panel):
             box.prop(props, "stool_scale", text="Chairs Scale")
             box.prop(props, "storage_height", text="Storage Height")
             box.prop(props, "sideboard_height", text="Sideboard Height")
-            box.prop(props, "table_margin", text="Table margin")   
-
+            box.prop(props, "desk_table_margin", text="Desk Table margin")   
+            box.prop(props, "meeting_table_margin", text="Meeting Table margin") 
 
 
 class OBJECT_OT_DeleteIfcCollection(bpy.types.Operator):
@@ -179,7 +179,7 @@ class ESEC_OT_function_3(bpy.types.Operator):
     def execute(self, context):
         print("Step 3 - create tables")
         #create_tabletops_from_dxf_collection()   
-        create_tabletops_from_dxf_collection_2()
+        create_tabletops_from_dxf_collection()
         print("Step 3 done")
         return {'FINISHED'}
 
@@ -236,7 +236,7 @@ class ESEC_OT_function_5(bpy.types.Operator):
         move_objects_to_new_collection("IfcDoor/Door", "ifc", "Doors")
         move_objects_to_new_collection("IfcWindow/Window", "ifc", "Windows") 
         #create_tabletops_from_dxf_collection()    
-        create_tabletops_from_dxf_collection_2()
+        create_tabletops_from_dxf_collection()
         create3D_Objects()
         create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
         create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height) 
@@ -752,50 +752,19 @@ def create_tabletop_rounds_from_object(obj):
     current_collection.objects.unlink(table_top)
     furniture_collection.objects.link(table_top)
 
-
 def create_tabletops_from_dxf_collection():
-    dxf_collection = bpy.data.collections.get("dxf")
-    if dxf_collection:
-        for obj in dxf_collection.objects:
-            if "Desk" in obj.name or "desk" in obj.name or "Table" in obj.name or "table" in obj.name:
-                if obj.type == 'CURVE':
-                    shape, num_points = detect_shape(obj)
-                    if shape == 'square':
-                        #print(f"square: {obj.name} - Shape: {shape} - Points: {num_points}")
-                        create_tabletop_square_from_object(obj)
-                    else:
-                        #print(f"circle: {obj.name} - Shape: {shape} - Points: {num_points}")    
-                        create_tabletop_rounds_from_object(obj)
-    else:
-        print("Collection 'dxf' not found.")
-
-def create_tabletops_from_dxf_collection_2():
     print("create_tabletops_from_dxf_collection_2")
     dxf_collection = bpy.data.collections.get("dxf")
     if dxf_collection:
-        print("inside create_tabletops_from_dxf_collection_2 - > dxf_collection")
         for obj in dxf_collection.objects:
             obj_name = obj.name.lower()
-            print("inside create_tabletops_from_dxf_collection_2 - > dxf_collection -> for loop")
+
             if "desk" in obj_name:
-                print("inside create_tabletops_from_dxf_collection_2 - > dxf_collection -> for loop _> if desk == true")
                 create_table(obj,"desk")
             if "table" in obj_name:
-                print("inside create_tabletops_from_dxf_collection_2 - > dxf_collection -> for loop _> if table == true")
                 create_table(obj,"table")
             else:
                 print("no desk or table in obj.name")
-            #match obj.name:
-            #    case "Desk":
-            #          create_table(obj,"desk")  
-            #    case "desk":
-            #          create_table(obj,"desk")
-            #    case "Table":
-            #          create_table(obj,"table")
-            #    case "table":
-            #          create_table(obj,"table")
-            #    case _: 
-            #        print("Collection 'dxf' not found.")
     else:
         print("Collection 'dxf' not found.")
 
