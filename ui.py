@@ -7,7 +7,6 @@ import inspect
 import bmesh
 from mathutils import Vector
 from bpy.types import Panel
-from .bl_info_module import bl_info_version
 from . import config
 
 def get_version_from_init():
@@ -19,8 +18,7 @@ def get_version_from_init():
 
     with open(init_file_path, "r") as file:
         for line in file:
-            match = re.search(r'"version": \((\d+), (\d+), (\d+)\)', line)
-            if match:
+            if match := re.search(r'"version": \((\d+), (\d+), (\d+)\)', line):
                 return '.'.join(match.groups())
     return None
 
@@ -117,8 +115,7 @@ class OBJECT_OT_DeleteFurnitureCollection(bpy.types.Operator):
         collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 'Sofas', 'outdoor_bench', 'outdoor_chair', 'Storage', 'Sideboard', 'bathroom' ]
 
         for collection_name in collections:
-            collection = bpy.data.collections.get(collection_name)
-            if collection:
+            if collection := bpy.data.collections.get(collection_name):
                 bpy.data.collections.remove(collection)
                 print(f"Deleted '{collection_name}' collection.")
             else:
@@ -394,7 +391,7 @@ class ESEC_OT_render(bpy.types.Operator):
 
 addon_keymaps = []
 
-def register():
+def register():  # sourcery skip: extract-method
     #bpy.utils.register_class(MyPanel)         
     bpy.utils.register_class(ESEC_OT_function_1)
     bpy.utils.register_class(ESEC_OT_function_2)
@@ -420,8 +417,7 @@ def register():
 
 
     wm = bpy.context.window_manager
-    kc = wm.keyconfigs.addon
-    if kc:        
+    if kc := wm.keyconfigs.addon:
         km = kc.keymaps.new(name='3D View', space_type='VIEW_3D')
         kmi = km.keymap_items.new(ESEC_OT_function_1.bl_idname, type='A', value='PRESS', alt=True, shift=True)
         kmi = km.keymap_items.new(ESEC_OT_function_2.bl_idname, type='B', value='PRESS', alt=True, shift=True)
@@ -434,8 +430,6 @@ def register():
     
 
 def unregister():
-    #bpy.utils.unregister_class(MyPanel)
-    
     bpy.utils.unregister_class(ESEC_OT_function_1)
     bpy.utils.unregister_class(ESEC_OT_function_2)
     bpy.utils.unregister_class(ESEC_OT_function_3)
@@ -465,11 +459,6 @@ def unregister():
 #######################################################################################
 
 def detect_shape(ob):
-
-    #Objectname: TaskChair.159 - Shape: circle - Points: 72
-    #Objectname: ConferenceChair.001 - Shape: circle - Points: 30
-    #Objectname: OutdoorChair.002 - Shape: circle - Points: 20
-
     # Get the curve data from the object
     curve = ob.data
     
@@ -522,16 +511,14 @@ def move_unwanted_objects(collection_name):
     if not orphan_collection:
         orphan_collection = bpy.data.collections.new(name='dxf_orphan')
         bpy.context.scene.collection.children.link(orphan_collection)
-        print(f"Created new collection: 'dxf_orphan'")
+        print("Created new collection: 'dxf_orphan'")
 
     allowed_keywords = ['Desk', 'Chair', 'chair', 'Sofa', 'Table', 'Storage', 'Sideboard', 'Bed', 'Stool', 'Printer', 'Bench', 'Toilet', 'Urinal', 'Sink']
-    objects_to_move = []
-
-    # Find objects to move
-    for obj in source_collection.objects:
-        if not any(keyword in obj.name for keyword in allowed_keywords):
-            objects_to_move.append(obj)
-
+    objects_to_move = [
+        obj
+        for obj in source_collection.objects
+        if all(keyword not in obj.name for keyword in allowed_keywords)
+    ]
     # Move objects
     for obj in objects_to_move:
         # Unlink from the source collection
@@ -542,7 +529,7 @@ def move_unwanted_objects(collection_name):
 
     # Hide the orphan collection
     orphan_collection.hide_viewport = True
-    print(f"Collection 'dxf_orphan' is now hidden.")
+    print("Collection 'dxf_orphan' is now hidden.")
 
 def rename_objects_dxf(collection_name):
     collection = bpy.data.collections.get(collection_name)
@@ -601,19 +588,16 @@ def move_window_objects_to_collection(collection_name, new_collection_name):
     if not target_collection:
         target_collection = bpy.data.collections.new(new_collection_name)
         bpy.context.scene.collection.children.link(target_collection)
-    
+
     keywords = ['Window', 'window']
-    objects_to_move = []
-
-    # Find objects to move
-    for obj in source_collection.objects:
-        if any(keyword in obj.name for keyword in keywords):
-            objects_to_move.append(obj.name)
-
+    objects_to_move = [
+        obj.name
+        for obj in source_collection.objects
+        if any(keyword in obj.name for keyword in keywords)
+    ]
     # Move objects
     for obj_name in objects_to_move:
-        obj = bpy.data.objects.get(obj_name)
-        if obj:
+        if obj := bpy.data.objects.get(obj_name):
             source_collection.objects.unlink(obj)
             target_collection.objects.link(obj)
             print(f"Moved object: {obj_name} to collection: {new_collection_name}")
@@ -630,19 +614,13 @@ def move_objects_to_new_collection(keyword, collection_name, new_collection_name
     if not target_collection:
         target_collection = bpy.data.collections.new(new_collection_name)
         bpy.context.scene.collection.children.link(target_collection)
-    
-    #keywords = ['IfcSlab/Floor']
-    objects_to_move = []
 
-    # Find objects to move
-    for obj in source_collection.objects:
-        if keyword in obj.name :
-            objects_to_move.append(obj.name)
-
+    objects_to_move = [
+        obj.name for obj in source_collection.objects if keyword in obj.name
+    ]
     # Move objects
     for obj_name in objects_to_move:
-        obj = bpy.data.objects.get(obj_name)
-        if obj:
+        if obj := bpy.data.objects.get(obj_name):
             source_collection.objects.unlink(obj)
             target_collection.objects.link(obj)
             print(f"Moved object: {obj_name} to collection: {new_collection_name}") 
@@ -655,17 +633,14 @@ def remove_window_objects(collection_name):
         return
 
     keywords = ['Window', 'window']
-    objects_to_remove = []
-
-    # Find objects to remove
-    for obj in collection.objects:
-        if any(keyword in obj.name for keyword in keywords):
-            objects_to_remove.append(obj.name)
-
+    objects_to_remove = [
+        obj.name
+        for obj in collection.objects
+        if any(keyword in obj.name for keyword in keywords)
+    ]
     # Remove objects
     for obj_name in objects_to_remove:
-        obj = bpy.data.objects.get(obj_name)
-        if obj:
+        if obj := bpy.data.objects.get(obj_name):
             bpy.data.objects.remove(obj, do_unlink=True)
             print(f"Removed object: {obj_name}")
 
@@ -698,7 +673,6 @@ def create_tabletop_square_from_object(obj,table_type):
     table_top.name = obj.name + "_TableTop"
 
     # Set the scale of the table_top based on the directly calculated dimensions
-
     match table_type:
         case "desk":
             table_top.scale.x = width - bpy.context.scene.esec_addon_props.desk_table_margin
@@ -754,8 +728,7 @@ def create_tabletop_rounds_from_object(obj):
 
 def create_tabletops_from_dxf_collection():
     print("create_tabletops_from_dxf_collection_2")
-    dxf_collection = bpy.data.collections.get("dxf")
-    if dxf_collection:
+    if dxf_collection := bpy.data.collections.get("dxf"):
         for obj in dxf_collection.objects:
             obj_name = obj.name.lower()
 
@@ -803,14 +776,13 @@ def create_stool_from_object(obj, furniture_collection):
 
 
 def create_stools_from_dxf_collection():
-    dxf_collection = bpy.data.collections.get("dxf")
-    if dxf_collection:
+    if dxf_collection := bpy.data.collections.get("dxf"):
         # Create a new collection called "furniture" if it doesn't exist
         furniture_collection = bpy.data.collections.get("chairs")
         if not furniture_collection:
             furniture_collection = bpy.data.collections.new("chairs")
             bpy.context.scene.collection.children.link(furniture_collection)
-        
+
         for obj in dxf_collection.objects:
             if "chair" in obj.name or "Chair" in obj.name:
                 create_stool_from_object(obj, furniture_collection)
@@ -852,8 +824,7 @@ def create_squares_from_dxf_object(obj, needle, scaleZ):
 
 
 def create_squares_from_dxf_collection(needle, scaleZ):
-    dxf_collection = bpy.data.collections.get("dxf")
-    if dxf_collection:
+    if dxf_collection := bpy.data.collections.get("dxf"):
         for obj in dxf_collection.objects:
             if needle in obj.name:
                 create_squares_from_dxf_object(obj, needle, scaleZ)
@@ -861,14 +832,13 @@ def create_squares_from_dxf_collection(needle, scaleZ):
         print("Collection 'dxf' not found.")
 
 #################################################################################################################
-#################################################################################################################
 
 def create_3Dobject_from_dxf_collection(needles, model_name, new_collection_name, ignoreKeyword=None):
     
     # Convert single string needle to list for compatibility
     if isinstance(needles, str):
         needles = [needles]
-    
+
     if bpy.context.scene.use_high_poly_models:
         strDirectory = os.path.join(os.path.dirname(__file__), config.MODELS_HIGH_DIRECTORY)        
     else:
@@ -884,14 +854,13 @@ def create_3Dobject_from_dxf_collection(needles, model_name, new_collection_name
 
     imported_object = bpy.ops.import_scene.obj(filepath=file_loc)
     selected_obj = bpy.context.selected_objects[0]
-            
+
     collection_to_write = bpy.data.collections.get(new_collection_name)
     if not collection_to_write:
         collection_to_write = bpy.data.collections.new(new_collection_name)
         bpy.context.scene.collection.children.link(collection_to_write)       
 
-    dxf_collection = bpy.data.collections.get("dxf")
-    if dxf_collection:
+    if dxf_collection := bpy.data.collections.get("dxf"):
         for obj in dxf_collection.objects:
             for needle in needles:
                 if needle.lower() in obj.name.lower():  
@@ -904,10 +873,7 @@ def create_3Dobject_from_dxf_collection(needles, model_name, new_collection_name
     #cleanup first imported model from 0 0 0 position
     bpy.data.objects.remove(selected_obj, do_unlink=True)
 
-
-
 def create_3d_object_from_dxf_object(dxf_obj,obj_model, collection_to_add_to):
-
     print('create_chair_from_dxf_object: dxf_obj.location: ', dxf_obj.location)
     obj_model.location = dxf_obj.location
     obj_model.rotation_euler[2] = dxf_obj.rotation_euler[2]
@@ -918,9 +884,8 @@ def create_3d_object_from_dxf_object(dxf_obj,obj_model, collection_to_add_to):
 
 def count_objects_in_collection(collection_name):
     #count_objects_in_collection('dxf')
-
     collection = bpy.data.collections.get(collection_name)
-    
+
     if not collection:
         print(f"No collection named {collection_name}")
         return
@@ -929,17 +894,15 @@ def count_objects_in_collection(collection_name):
     object_count = {}
 
     for obj in collection.objects:
-        # We'll use regex to extract the base name of the object (name without trailing .###)
-        match = re.match(r"([^.]*)(\.\d+)?", obj.name)
-        if match:
-            base_name = match.group(1)
+        if match := re.match(r"([^.]*)(\.\d+)?", obj.name):
+            base_name = match[1]
             # If this base name is not in the dictionary yet, add it with a count of 1
             if base_name not in object_count:
                 object_count[base_name] = 1
             # If it's already in the dictionary, increment the count
             else:
                 object_count[base_name] += 1
-    
+
     for name, count in object_count.items():
         print(f"{count}x {name}")
 
@@ -1024,12 +987,11 @@ def convert_srgb_to_linear_rgb(srgb_color_component: float) -> float:
     Converting from sRGB to Linear RGB
     based on https://en.wikipedia.org/wiki/SRGB#From_sRGB_to_CIE_XYZ
     """
-    if srgb_color_component <= 0.04045:
-        linear_color_component = srgb_color_component / 12.92
-    else:
-        linear_color_component = math.pow((srgb_color_component + 0.055) / 1.055, 2.4)
-
-    return linear_color_component
+    return (
+        srgb_color_component / 12.92
+        if srgb_color_component <= 0.04045
+        else math.pow((srgb_color_component + 0.055) / 1.055, 2.4)
+    )
 
 def assign_collection_materials():
     # Remove all materials
@@ -1078,8 +1040,7 @@ def assign_collection_materials():
                 obj.data.materials.append(material)
 
 def hide_collection(collection_name):
-    collection = bpy.data.collections.get(collection_name)
-    if collection:
+    if collection := bpy.data.collections.get(collection_name):
         collection.hide_viewport = True
         collection.hide_render = True
     else:
