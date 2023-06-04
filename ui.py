@@ -513,11 +513,11 @@ def move_unwanted_objects(collection_name):
         bpy.context.scene.collection.children.link(orphan_collection)
         print("Created new collection: 'dxf_orphan'")
 
-    allowed_keywords = ['Desk', 'Chair', 'chair', 'Sofa', 'Table', 'Storage', 'Sideboard', 'Bed', 'Stool', 'Printer', 'Bench', 'Toilet', 'Urinal', 'Sink']
+    allowed_keywords = ['desk', 'chair', 'sofa', 'table', 'storage', 'sideboard', 'bed', 'stool', 'printer', 'bench', 'toilet', 'urinal', 'sink', 'stair']
     objects_to_move = [
         obj
         for obj in source_collection.objects
-        if all(keyword not in obj.name for keyword in allowed_keywords)
+        if all(keyword not in obj.name.lower() for keyword in allowed_keywords)
     ]
     # Move objects
     for obj in objects_to_move:
