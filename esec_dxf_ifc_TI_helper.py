@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC ICF-TI Helper",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 4),
+    "version": (1, 5),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Rename IFC Space based on DXF roomnames",
@@ -20,6 +20,7 @@ from blenderbim.bim.ifc import IfcStore
 
 def rename_spaces_by_longname():
     # Define the longnames to look for and their corresponding new names
+    print("rename_spaces_by_longname")
     longname_dict = {
         'staircase': 'Staircase',
         'elevator': 'Elevator',
@@ -93,6 +94,7 @@ def move_objects_to_new_collection():
 def delete_unwanted_text_objects_from_dxf():
     # Define the list of strings to look for
     strings_to_keep = bpy.context.scene.esec_strings_to_keep.split(', ')
+    print(strings_to_keep)
     #strings_to_keep = ['North', 'South', 'West', 'East', 'Central']
 
     # Get the 'dxf' collection
@@ -112,6 +114,7 @@ def delete_unwanted_text_objects_from_dxf():
         if obj.type == 'FONT':
             # If the object's text does not contain any of the specified strings, select it
             if not any(s in obj.data.body for s in strings_to_keep):
+                print("delete " + obj.name)
                 obj.select_set(True)
 
     # Delete all selected objects at once
@@ -243,7 +246,7 @@ bpy.types.Scene.esec_dry_run = bpy.props.BoolProperty(
 bpy.types.Scene.esec_strings_to_keep = bpy.props.StringProperty(
     name="Strings to keep",
     description="Enter strings to keep, separated by commas",
-    default = 'North, South, West, East, Central'
+    default = 'A., B., C., D., E., F., G.'
 )
 
 class ESEC_OT_ImportIFC(bpy.types.Operator):
@@ -280,7 +283,9 @@ class ESEC_OT_PrepareDXF(bpy.types.Operator):
     bl_description = "Prepare DXF file"
 
     def execute(self, context):
+        print("Prepare DXF")
         move_objects_to_new_collection()
+        print("delete_unwanted_text_objects_from_dxf")
         delete_unwanted_text_objects_from_dxf()
         return {'FINISHED'}
 

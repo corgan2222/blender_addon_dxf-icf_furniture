@@ -137,6 +137,9 @@ class ESEC_OT_function_1(bpy.types.Operator):
     def execute(self, context):
         #function_1(self, context)
         print("Step 1 - prepare DXF")
+        move_to_closets_collection()
+        convert_splines_to_meshes_in_closets()
+        create_faces_in_closets_meshes()
         move_objects_to_dxf()
         move_unwanted_objects("dxf")
         rename_objects_dxf("dxf")
@@ -223,7 +226,10 @@ class ESEC_OT_function_5(bpy.types.Operator):
  
 
     def execute(self, context):
-        print("Rock'n'Roll")      
+        print("Rock'n'Roll")  
+        move_to_closets_collection()
+        convert_splines_to_meshes_in_closets()
+        create_faces_in_closets_meshes()
         move_objects_to_dxf()
         move_unwanted_objects("dxf")
         rename_objects_dxf("dxf")
@@ -231,8 +237,7 @@ class ESEC_OT_function_5(bpy.types.Operator):
         remove_collection("IfcProject/None")
         move_objects_to_new_collection("IfcSlab/Floor", "ifc", "Floors")  
         move_objects_to_new_collection("IfcDoor/Door", "ifc", "Doors")
-        move_objects_to_new_collection("IfcWindow/Window", "ifc", "Windows") 
-        #create_tabletops_from_dxf_collection()    
+        move_objects_to_new_collection("IfcWindow/Window", "ifc", "Windows")         
         create_tabletops_from_dxf_collection()
         create3D_Objects()
         create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
@@ -1221,3 +1226,92 @@ def render_scene(resolution_x, resolution_y):
     # Render the scene
     bpy.ops.render.render(write_still=True)
     print("Finish renderer")
+
+
+
+
+def move_to_closets_collection():
+    # Ensure the 'closets' collection exists
+    closets_collection = bpy.data.collections.get("closets")
+    if not closets_collection:
+        closets_collection = bpy.data.collections.new("closets")
+        bpy.context.scene.collection.children.link(closets_collection)
+
+    # Find spline objects with 'closets' in their name and move them to the 'closets' collection
+    for obj in bpy.data.objects:
+        if 'closets' in obj.name and obj.type == 'CURVE':
+            # Unlink object from all its current collections
+            for coll in obj.users_collection:
+                coll.objects.unlink(obj)
+            # Link object to the 'closets' collection
+            closets_collection.objects.link(obj)
+
+def convert_splines_to_meshes_in_closets():
+    # Get the 'closets' collection
+    closets_collection = bpy.data.collections.get("closets")
+    if closets_collection is None:
+        print("No 'closets' collection found.")
+        return
+
+    # Deselect all objects
+    bpy.ops.object.select_all(action='DESELECT')
+
+    # Loop through objects in the 'closets' collection
+    for obj in closets_collection.objects:
+        if obj.type == 'CURVE':
+            # Select the object
+            obj.select_set(True)
+
+            # Set the active object (required for the conversion operation)
+            bpy.context.view_layer.objects.active = obj
+
+            # Convert the spline object to a mesh
+            bpy.ops.object.convert(target='MESH')
+
+            # Deselect the object
+            obj.select_set(False)
+            
+            
+def create_faces_in_closets_meshes():
+    # Get the 'closets' collection
+    closets_collection = bpy.data.collections.get("closets")
+    if closets_collection is None:
+        print("No 'closets' collection found.")
+        return
+
+    # Save the original context
+    original_area = bpy.context.area.type
+    bpy.context.area.type = 'VIEW_3D'
+
+    # Deselect all objects
+    bpy.ops.object.select_all(action='DESELECT')
+
+    # Loop through objects in the 'closets' collection
+    for obj in closets_collection.objects:
+        if obj.type == 'MESH':
+            # Select the object
+            obj.select_set(True)
+
+            # Set the active object (required for the edit mode operations)
+            bpy.context.view_layer.objects.active = obj
+
+            # Switch to edit mode
+            bpy.ops.object.mode_set(mode='EDIT')
+
+            # Select all vertices
+            bpy.ops.mesh.select_all(action='SELECT')
+
+            # Create a new edge/face from vertices
+            bpy.ops.mesh.edge_face_add()
+
+            # Extrude on Z axis by 1.8 units
+            bpy.ops.transform.translate(value=(0, 0, 0))
+
+            # Switch back to object mode
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+            # Deselect the object
+            obj.select_set(False)
+
+    # Restore the original context
+    bpy.context.area.type = original_area
