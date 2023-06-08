@@ -325,10 +325,20 @@ class EsecSubmenu(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator(OBJECT_OT_DeleteIfcCollection.bl_idname)
-        layout.operator(OBJECT_OT_DeleteDxfCollection.bl_idname)
-        layout.operator(OBJECT_OT_DeleteFurnitureCollection.bl_idname)
+        layout.operator(OBJECT_OT_DeleteIfcCollection.bl_idname, icon="CANCEL")
+        layout.operator(OBJECT_OT_DeleteDxfCollection.bl_idname, icon="CANCEL")
+        layout.operator(OBJECT_OT_DeleteFurnitureCollection.bl_idname, icon="CANCEL")
         layout.operator("esec.create_simple_chairs", icon="OUTLINER_OB_POINTCLOUD")
+        layout.operator("esec.organize_collections", icon="GRAPH")
+
+class ESEC_OT_organize_collections(bpy.types.Operator):
+    bl_idname = "esec.organize_collections"
+    bl_label = "Organize Collections"
+    bl_description = "Organize Collections"
+
+    def execute(self, context):
+        organize_collections()    
+        return {'FINISHED'}
 
 
 class ESEC_OT_create_storage(bpy.types.Operator):
@@ -419,6 +429,7 @@ def register():  # sourcery skip: extract-method
     bpy.utils.register_class(ESEC_OT_setup_renderer)
     bpy.utils.register_class(ESEC_OT_render)
     bpy.utils.register_class(EsecExportKeyShotOperator)
+    bpy.utils.register_class(ESEC_OT_organize_collections)
 
 
     wm = bpy.context.window_manager
@@ -456,6 +467,7 @@ def unregister():
     bpy.utils.unregister_class(ESEC_OT_setup_renderer)
     bpy.utils.unregister_class(ESEC_OT_render)
     bpy.utils.unregister_class(EsecExportKeyShotOperator)
+    bpy.utils.unregister_class(ESEC_OT_organize_collections)
 
     for km, kmi in addon_keymaps:
         km.keymap_items.remove(kmi)
@@ -1315,3 +1327,34 @@ def create_faces_in_closets_meshes():
 
     # Restore the original context
     bpy.context.area.type = original_area
+
+
+def organize_collections():
+    # Create 'Structure' and 'Assets' collections if they don't exist
+    structure_collection = bpy.data.collections.get('Structure')
+    if not structure_collection:
+        structure_collection = bpy.data.collections.new('Structure')
+        bpy.context.scene.collection.children.link(structure_collection)
+    assets_collection = bpy.data.collections.get('Assets')
+    if not assets_collection:
+        assets_collection = bpy.data.collections.new('Assets')
+        bpy.context.scene.collection.children.link(assets_collection)
+
+    # List of collections to move to 'Structure'
+    structure_collections = ['ifc', 'Floors', 'Doors', 'Windows']
+
+    # Move collections to 'Structure'
+    for col_name in structure_collections:
+        if collection := bpy.data.collections.get(col_name):
+            bpy.context.scene.collection.children.unlink(collection)
+            structure_collection.children.link(collection)
+
+    # Move the rest collections to the 'Assets' collection
+    for collection in bpy.data.collections:
+        if (collection.name not in structure_collections and 
+            collection != structure_collection and 
+            collection != assets_collection):
+            # Check if the collection is in the main scene collection before trying to unlink
+            if collection.name in bpy.context.scene.collection.children:
+                bpy.context.scene.collection.children.unlink(collection)
+                assets_collection.children.link(collection)
