@@ -530,7 +530,7 @@ def move_unwanted_objects(collection_name):
         bpy.context.scene.collection.children.link(orphan_collection)
         print("Created new collection: 'dxf_orphan'")
 
-    allowed_keywords = ['desk', 'chair', 'sofa', 'table', 'storage', 'sideboard', 'bed', 'stool', 'printer', 'bench', 'toilet', 'urinal', 'sink', 'stair']
+    allowed_keywords = ['desk', 'chair', 'sofa', 'table', 'storage', 'sideboard', 'bed', 'stool', 'printer', 'bench', 'toilet', 'urinal', 'sink', 'stair', 'ottoman', 'bank']
     objects_to_move = [
         obj
         for obj in source_collection.objects
@@ -1205,6 +1205,7 @@ def create3D_Objects():
     create_3Dobject_from_dxf_collection('Sink','sink', 'bathroom')
     create_3Dobject_from_dxf_collection('Toilet','toilet', 'bathroom')
     create_3Dobject_from_dxf_collection('Urinal','urinal', 'bathroom')
+    create_3Dobject_from_dxf_collection('BumperSmallOttoman','pouf', 'Sofas')
     print("Create 3d objects done")
 
 def render_scene(resolution_x, resolution_y):
