@@ -1,9 +1,9 @@
 bl_info = {
     "name": "ESEC Archiologic Importer",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 0),
+    "version": (1, 1),
     "blender": (2, 93, 0),
-    "location": "View3D > Sidebar > ESEC Archiologic Tab",
+    "location": "View3D > Sidebar > ESEC Tab",
     "description": "Addon to import your Archiologic Data directly into Blender.",
     "warning": "",
     "wiki_url": "",
@@ -19,7 +19,11 @@ from statistics import mean
 
 global spaces_json_data
 
-def get_floor_data(token, floor_id):
+def get_floor_data(floor_id):
+
+    preferences = bpy.context.preferences.addons[__package__].preferences
+    token = preferences.archiologic_token
+    
     global spaces_json_data
     headers = {
         "Authorization": f"AL-Secret-Token {token}"
@@ -119,17 +123,14 @@ def create_3d():
         text_collection.objects.link(text_obj)
 
 class ESEC_ARCHIOLOGIC_PT_main_panel(bpy.types.Panel):
-    bl_label = "ESEC Archiologic"
+    bl_label = "ESEC Archiologic import"
     bl_idname = "ESEC_ARCHIOLOGIC_PT_main_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ESEC Archiologic'
+    bl_category = 'ESEC'
 
     def draw(self, context):
         layout = self.layout
-
-        layout.label(text="Title")
-        layout.prop(context.scene, "token")
         layout.prop(context.scene, "floorID")
         layout.operator("esec.get_floor_data")
         layout.separator()
@@ -147,12 +148,11 @@ class ESEC_ARCHIOLOGIC_OT_get_floor_data(bpy.types.Operator):
     def execute(self, context):
         print("Get Floor Data")
         
-        # Get token and floorID from the input fields
-        token = context.scene.token
+        # Get floorID from the input fields
         floor_id = context.scene.floorID
 
         # Call the separate function to get floor data
-        get_floor_data(token, floor_id)  
+        get_floor_data(floor_id)  
               
         return {'FINISHED'}
 
@@ -181,8 +181,7 @@ def register():
     bpy.utils.register_class(ESEC_ARCHIOLOGIC_PT_main_panel)
     bpy.utils.register_class(ESEC_ARCHIOLOGIC_OT_get_floor_data)
     bpy.utils.register_class(ESEC_ARCHIOLOGIC_OT_delete_all)
-    bpy.utils.register_class(ESEC_ARCHIOLOGIC_OT_create)    
-    bpy.types.Scene.token = bpy.props.StringProperty(name="Token", default="", description="Password")
+    bpy.utils.register_class(ESEC_ARCHIOLOGIC_OT_create)        
     bpy.types.Scene.floorID = bpy.props.StringProperty(name="Floor ID", default="", description="Floor from Archiologic")
     bpy.types.Scene.create_rooms = bpy.props.BoolProperty(name="Create Rooms")
     bpy.types.Scene.create_walls = bpy.props.BoolProperty(name="Create Walls")
@@ -194,7 +193,6 @@ def unregister():
     bpy.utils.unregister_class(ESEC_ARCHIOLOGIC_OT_get_floor_data)
     bpy.utils.unregister_class(ESEC_ARCHIOLOGIC_OT_delete_all)
     bpy.utils.unregister_class(ESEC_ARCHIOLOGIC_OT_create)
-    del bpy.types.Scene.token
     del bpy.types.Scene.floorID
     del bpy.types.Scene.create_rooms
     del bpy.types.Scene.create_walls

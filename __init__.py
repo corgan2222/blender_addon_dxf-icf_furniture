@@ -1,4 +1,5 @@
 from . import properties
+from . import preferences
 from . import ui
 from . import esec_dxf_ifc_TI_helper
 from . import esec_archiologic_importer
@@ -6,7 +7,7 @@ from . import esec_archiologic_importer
 bl_info = {
     "name": "ESEC DXF-IFC 3D Floorplan Tool",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 9, 2),
+    "version": (1, 9, 4),
     "blender": (3, 5, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Create furniture like tables and chairs from a DXF plan, exported from Archiologic.",
@@ -20,15 +21,17 @@ bl_info = {
 
 def register():
     properties.register()
+    preferences.register()
     ui.register()
     esec_dxf_ifc_TI_helper.register()
     esec_archiologic_importer.register()
 
 def unregister():
     properties.unregister()
-    ui.unregister()
+    preferences.unregister()    
     esec_dxf_ifc_TI_helper.unregister()
     esec_archiologic_importer.unregister()
+    ui.unregister()
 
 if __name__ == '__main__':
     register()

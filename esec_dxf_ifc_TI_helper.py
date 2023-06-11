@@ -304,7 +304,7 @@ class ESEC_PT_MainPanel(bpy.types.Panel):
     bl_idname = "ESEC_PT_MainPanel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ESEC IFC Tab'
+    bl_category = 'ESEC'
 
     def draw(self, context):
         layout = self.layout

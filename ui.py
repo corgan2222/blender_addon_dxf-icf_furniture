@@ -28,7 +28,7 @@ class ESEC_PT_panel(bpy.types.Panel):
     bl_idname = "ESEC_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ESEC 3D Floorplan'
+    bl_category = 'ESEC'
 
     def draw(self, context):
         layout = self.layout
@@ -39,27 +39,37 @@ class ESEC_PT_panel(bpy.types.Panel):
         row_01.operator("import_scene.dxf_esec", icon="IMPORT") 
         row_01.operator("import_ifc.bim_esec", icon="IMPORT") 
         layout.separator()
+
         layout.label(text="Process")
         layout.operator("esec.function_1", icon="FILE_VOLUME")
         layout.operator("esec.function_2", icon="FILE_3D")
         layout.operator("esec.function_3", icon="SNAP_VERTEX")
         layout.operator("esec.create_3d_chairs", icon="OUTLINER_OB_POINTCLOUD")        
-        layout.operator("esec.create_storage", icon="SNAP_FACE")
-        layout.operator("esec.create_sideboard", icon="SNAP_EDGE")
+        #layout.operator("esec.create_storage", icon="SNAP_FACE")
+        #layout.operator("esec.create_sideboard", icon="SNAP_EDGE")
         layout.operator("esec.assign_materials", icon="IMAGE_RGB_ALPHA")
         layout.separator()
         layout.operator("esec.function_5", icon="HAND")
+        layout.separator()   
+
+        layout.label(text="Close holes")        
+        row_02 = layout.row(align=True)  # align=True puts operators side by side
+        row_02.operator("esec.close_holes_prepare", icon="TRACKING_FORWARDS")        
+        row_02.operator("esec.close_holes_finish", icon='CHECKMARK')
+
         layout.separator()        
         layout.label(text="Save/Export")
-        row_02 = layout.row(align=True)  # align=True puts operators side by side
-        row_02.operator("wm.save_as_esec", icon="FILE_TICK")        
-        row_02.operator("wm.export_obj_esec", icon='EXPORT')
+        row_03 = layout.row(align=True)  # align=True puts operators side by side
+        row_03.operator("wm.save_as_esec", icon="FILE_TICK")        
+        row_03.operator("wm.export_obj_esec", icon='EXPORT')
         layout.operator("esec.export_keyshot_esec", icon='EXPORT')
         layout.separator()
+
         layout.label(text="Render")
-        row_03 = layout.row(align=True)  # align=True puts operators side by side
-        row_03.operator("esec.setup_renderer", icon='SHADING_RENDERED')
-        row_03.operator("esec.render", icon='RENDERLAYERS')
+        row_04 = layout.row(align=True)  # align=True puts operators side by side
+        row_04.operator("esec.setup_renderer", icon='SHADING_RENDERED')
+        row_04.operator("esec.render", icon='RENDERLAYERS')
+        
         layout.separator()        
         layout.menu(EsecSubmenu.bl_idname)
         layout.separator()   
@@ -79,30 +89,40 @@ class ESEC_PT_panel(bpy.types.Panel):
 
 class OBJECT_OT_DeleteIfcCollection(bpy.types.Operator):
     bl_idname = "object.delete_ifc_collection"
-    bl_label = "Delete 'ifc' Collection"
+    bl_label = "Delete 'Structur' Collection"
     bl_options = {'REGISTER', 'UNDO'}
-    bl_description = "Deletes the IFC Collection"
+    bl_description = "Deletes all structure Collections"
 
     def execute(self, context):
-        if "ifc" in bpy.data.collections:
-            bpy.data.collections.remove(bpy.data.collections["ifc"])
-            self.report({'INFO'}, "Deleted 'ifc' Collection")
-        else:
-            self.report({'WARNING'}, "Collection 'ifc' not found")
+
+        collections = ['ifc', 'Floors', 'Doors', 'Windows', 'Bar_Stools', 'floors_intersect', 'Structure']
+
+        for collection_name in collections:
+            if collection := bpy.data.collections.get(collection_name):
+                bpy.data.collections.remove(collection)
+                print(f"Deleted '{collection_name}' collection.")
+            else:
+                print(f"Collection '{collection_name}' not found.")
+
         return {'FINISHED'}
 
 class OBJECT_OT_DeleteDxfCollection(bpy.types.Operator):
     bl_idname = "object.delete_dxf_collection"
     bl_label = "Delete 'dxf' Collection"
     bl_options = {'REGISTER', 'UNDO'}
-    bl_description = "Deletes the DXF Collection"
+    bl_description = "Deletes the DXF Collections"
 
     def execute(self, context):
-        if "dxf" in bpy.data.collections:
-            bpy.data.collections.remove(bpy.data.collections["dxf"])
-            self.report({'INFO'}, "Deleted 'dxf' Collection")
-        else:
-            self.report({'WARNING'}, "Collection 'dxf' not found")
+
+        collections = ['dxf', 'dxf_orphan', 'DXF']
+
+        for collection_name in collections:
+            if collection := bpy.data.collections.get(collection_name):
+                bpy.data.collections.remove(collection)
+                print(f"Deleted '{collection_name}' collection.")
+            else:
+                print(f"Collection '{collection_name}' not found.")
+
         return {'FINISHED'}
 
 class OBJECT_OT_DeleteFurnitureCollection(bpy.types.Operator):
@@ -112,7 +132,7 @@ class OBJECT_OT_DeleteFurnitureCollection(bpy.types.Operator):
 
     def execute(self, context):
 
-        collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 'Sofas', 'outdoor_bench', 'outdoor_chair', 'Storage', 'Sideboard', 'bathroom' ]
+        collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 'Sofas', 'outdoor_bench', 'outdoor_chair', 'Storage', 'Sideboard', 'Bathroom', 'closets' , 'Assets']
 
         for collection_name in collections:
             if collection := bpy.data.collections.get(collection_name):
@@ -210,12 +230,20 @@ class ESEC_OT_create_3d_chairs(bpy.types.Operator):
         return 'dxf' in bpy.data.collections
 
     def execute(self, context):
+        print("Create 3D Objects")
         create3D_Objects()
+        print("Create 3D Objects done")
+        print("Create Storage")
+        create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
+        print("Create Storage done")
+        print("Create sideboards")
+        create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height)    
+        print("Create sideboards done")
         return {'FINISHED'}
 
 class ESEC_OT_function_5(bpy.types.Operator):
     bl_idname = "esec.function_5"
-    bl_label = "Step 1-7 at once"
+    bl_label = "Step 1-5 at once"
     bl_description = "Execute all steps at once"
 
     @classmethod
@@ -245,6 +273,41 @@ class ESEC_OT_function_5(bpy.types.Operator):
         assign_collection_materials()
         print("all done")        
         return {'FINISHED'}
+
+class ESEC_OT_close_holes_prepare(bpy.types.Operator):
+    bl_idname = "esec.close_holes_prepare"
+    bl_label = "Prepare"
+    bl_description = "Creates an intersection of the floors and the walls. You have to move the Floors_Intersect object exactly on top of Floors_combined."
+
+    @classmethod
+    def poll(cls, context):
+        # This operator is available only if the 'dxf' collection exists
+        return 'Floors' in bpy.data.collections
+
+    def execute(self, context):
+        print("Prepare closing holes")
+        close_holes_process_floors()
+        close_holes_extrude_top_face()
+        close_holes_apply_boolean_difference()
+        close_holes_deactivate_rendering()
+        print("done prepare closing holes")
+        return {'FINISHED'}
+
+class ESEC_OT_close_holes_finish(bpy.types.Operator):
+    bl_idname = "esec.close_holes_finish"
+    bl_label = "Finish"
+    bl_description = "Move the Floors_Intersect object exactly on top of Floors_combined before clicking this button! "
+
+    @classmethod
+    def poll(cls, context):
+        return 'floors_intersect' in bpy.data.collections
+
+    def execute(self, context):
+        print("Finish closing holes")
+        close_holes_finish()   
+        print("done closing holes")
+        return {'FINISHED'}
+
 
 class IMPORT_OT_dxf(bpy.types.Operator):
     bl_idname = "import_scene.dxf_esec"
@@ -376,7 +439,7 @@ class ESEC_OT_create_sideboard(bpy.types.Operator):
 
 class ESEC_OT_assign_materials(bpy.types.Operator):
     bl_idname = "esec.assign_materials"
-    bl_label = "Step 7 - Assign Materials"
+    bl_label = "Step 5 - Assign Materials"
     bl_description = "Assign materials to all objects."
 
     def execute(self, context):
@@ -430,6 +493,8 @@ def register():  # sourcery skip: extract-method
     bpy.utils.register_class(ESEC_OT_render)
     bpy.utils.register_class(EsecExportKeyShotOperator)
     bpy.utils.register_class(ESEC_OT_organize_collections)
+    bpy.utils.register_class(ESEC_OT_close_holes_prepare)
+    bpy.utils.register_class(ESEC_OT_close_holes_finish)
 
 
     wm = bpy.context.window_manager
@@ -468,6 +533,8 @@ def unregister():
     bpy.utils.unregister_class(ESEC_OT_render)
     bpy.utils.unregister_class(EsecExportKeyShotOperator)
     bpy.utils.unregister_class(ESEC_OT_organize_collections)
+    bpy.utils.unregister_class(ESEC_OT_close_holes_prepare)
+    bpy.utils.unregister_class(ESEC_OT_close_holes_finish)
 
     for km, kmi in addon_keymaps:
         km.keymap_items.remove(kmi)
@@ -968,6 +1035,7 @@ def create_material(material_name, base_color, specular, roughness):
     # Set roughness
     principled_bsdf.inputs['Roughness'].default_value = roughness
     
+    print(f"Created material: {material_name}")
     return material
 
 #color helper
@@ -1012,6 +1080,7 @@ def convert_srgb_to_linear_rgb(srgb_color_component: float) -> float:
 
 def assign_collection_materials():
     # Remove all materials
+    print("Remove all materials")
     for material in bpy.data.materials:
         bpy.data.materials.remove(material)
 
@@ -1026,7 +1095,7 @@ def assign_collection_materials():
     materials = {
         "ifc": create_material("ifc", (0.8, 0.8, 0.8, 1), 0, 0.1),
         "Floor": create_material("Floor", (1, 1, 1, 1), 0, 0.1),
-        "Doors": create_material("Doors", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "Doors": create_material("Doors", (0.65, 0.65, 0.65, 1), 0.8, 0.1),
         "Windows": create_glass_material(),
         "tables": create_material("Table", (0.9, 0.9, 0.9, 1), 0.8, 0.1),
         "Office_chairs": create_material("Office_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
@@ -1202,9 +1271,9 @@ def create3D_Objects():
     create_3Dobject_from_dxf_collection('CornerSofa','couch_76x76x45_round_corner', 'Sofas')
     create_3Dobject_from_dxf_collection('OutdoorBench','outdoor_bench', 'outdoor_bench')
     create_3Dobject_from_dxf_collection(['OutdoorChair', 'OutdoorArmchair'],'outdoor_chair', 'outdoor_chair')
-    create_3Dobject_from_dxf_collection('Sink','sink', 'bathroom')
-    create_3Dobject_from_dxf_collection('Toilet','toilet', 'bathroom')
-    create_3Dobject_from_dxf_collection('Urinal','urinal', 'bathroom')
+    create_3Dobject_from_dxf_collection('Sink','sink', 'Bathroom')
+    create_3Dobject_from_dxf_collection('Toilet','toilet', 'Bathroom')
+    create_3Dobject_from_dxf_collection('Urinal','urinal', 'Bathroom')
     create_3Dobject_from_dxf_collection('BumperSmallOttoman','pouf', 'Sofas')
     print("Create 3d objects done")
 
@@ -1331,31 +1400,250 @@ def create_faces_in_closets_meshes():
 
 
 def organize_collections():
-    # Create 'Structure' and 'Assets' collections if they don't exist
+
+    # Remove any empty collections
+    for collection in list(bpy.data.collections):  # Make a copy of the list because we're modifying it
+        if len(collection.objects) == 0 and len(collection.children) == 0:
+            bpy.data.collections.remove(collection)
+
+    # Create 'Structure', 'DXF', and 'Assets' collections if they don't exist
     structure_collection = bpy.data.collections.get('Structure')
     if not structure_collection:
         structure_collection = bpy.data.collections.new('Structure')
         bpy.context.scene.collection.children.link(structure_collection)
+
+    dxf_collection = bpy.data.collections.get('DXF')
+    if not dxf_collection:
+        dxf_collection = bpy.data.collections.new('DXF')
+        bpy.context.scene.collection.children.link(dxf_collection)
+
     assets_collection = bpy.data.collections.get('Assets')
     if not assets_collection:
         assets_collection = bpy.data.collections.new('Assets')
         bpy.context.scene.collection.children.link(assets_collection)
 
     # List of collections to move to 'Structure'
-    structure_collections = ['ifc', 'Floors', 'Doors', 'Windows']
+    structure_collections = ['ifc', 'Floors', 'Doors', 'Windows', 'floors_intersect']
+
+    # List of collections to move to 'DXF'
+    dxf_collections = ['dxf', 'dxf_orphan']
+
+    # List of collections to move to 'Assets'
+    asset_collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 'Sofas', 'outdoor_bench', 'outdoor_chair', 'Storage', 'Sideboard', 'Bathroom', 'closets' ]
 
     # Move collections to 'Structure'
     for col_name in structure_collections:
         if collection := bpy.data.collections.get(col_name):
-            bpy.context.scene.collection.children.unlink(collection)
-            structure_collection.children.link(collection)
-
-    # Move the rest collections to the 'Assets' collection
-    for collection in bpy.data.collections:
-        if (collection.name not in structure_collections and 
-            collection != structure_collection and 
-            collection != assets_collection):
-            # Check if the collection is in the main scene collection before trying to unlink
             if collection.name in bpy.context.scene.collection.children:
                 bpy.context.scene.collection.children.unlink(collection)
+            if collection.name not in structure_collection.children:
+                structure_collection.children.link(collection)
+
+    # Move collections to 'DXF'
+    for col_name in dxf_collections:
+        if collection := bpy.data.collections.get(col_name):
+            if collection.name in bpy.context.scene.collection.children:
+                bpy.context.scene.collection.children.unlink(collection)
+            if collection.name not in dxf_collection.children:
+                dxf_collection.children.link(collection)
+
+    # Move collections to 'Assets'
+    for col_name in asset_collections:
+        if collection := bpy.data.collections.get(col_name):
+            if collection.name in bpy.context.scene.collection.children:
+                bpy.context.scene.collection.children.unlink(collection)
+            if collection.name not in assets_collection:
                 assets_collection.children.link(collection)
+
+
+
+###
+
+def close_holes_process_floors():
+    # Create a new collection
+    new_collection = bpy.data.collections.new("floors_intersect")
+    bpy.context.scene.collection.children.link(new_collection)
+    
+    # Get reference to the existing 'Floors' collection
+    floors_collection = bpy.data.collections.get("Floors")
+    
+    # Check if 'Floors' collection exists
+    if floors_collection is None:
+        print("Collection 'Floors' not found.")
+        return
+
+    # Copy each object from 'Floors' collection to the new collection
+    for obj in floors_collection.objects:
+        new_obj = obj.copy()
+        new_obj.data = obj.data.copy()
+        new_collection.objects.link(new_obj)
+        
+    # Combine all objects in the new collection into one mesh
+    bpy.context.view_layer.active_layer_collection = bpy.context.view_layer.layer_collection.children['floors_intersect']
+    bpy.ops.object.select_all(action='DESELECT')
+
+    for obj in new_collection.objects:
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+
+    bpy.ops.object.join()
+    
+    # Set the name of the joined object
+    bpy.context.object.name = "Floors_combined"
+
+    # Set the origin of 'floors_intersect' object to geometry
+    #bpy.ops.object.origin_set(type='ORIGIN_CENTER_OF_MASS', center='BOUNDS')
+
+    # Create a new plane with the same settings as floors_intersect
+    bpy.ops.mesh.primitive_plane_add(size=1)
+    plane = bpy.context.object
+    plane.name = "Floors_Intersect"
+
+    # Set the plane's settings to match floors_combined
+    floors_intersect = bpy.data.objects.get("Floors_combined")
+    if floors_intersect is not None:
+        plane.location = floors_intersect.location
+        plane.scale = floors_intersect.scale
+        plane.dimensions = floors_intersect.dimensions
+    else:
+        print("Object 'Floors_combined' not found.")
+
+#process_floors()
+
+def close_holes_extrude_top_face():
+    # Get the object named "Plan" from the "floors_intersect" collection
+    floors_intersect_collection = bpy.data.collections.get("floors_intersect")
+    if floors_intersect_collection is None:
+        print("Collection 'floors_intersect' not found.")
+        return
+
+    plan_object = floors_intersect_collection.objects.get("Floors_Intersect")
+    if plan_object is None:
+        print("Object 'Plane' not found.")
+        return
+    
+    # Set the "Floors_Intersect" object as the active object
+    bpy.context.view_layer.objects.active = plan_object
+    plan_object.select_set(True)
+    
+    # Switch to edit mode
+    bpy.ops.object.mode_set(mode='EDIT')
+
+    # Deselect all
+    bpy.ops.mesh.select_all(action='DESELECT')
+
+    # Switch to face select mode
+    bpy.context.tool_settings.mesh_select_mode = (False, False, True)
+    
+    # Select all faces
+    bpy.ops.mesh.select_all(action='SELECT')
+
+    # Extrude the faces on the Z axis by 0.197681 m
+    bpy.ops.mesh.extrude_region_move(
+        TRANSFORM_OT_translate={"value": (0, 0, 0.19)}
+    )
+    
+    # Switch back to object mode
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+def close_holes_apply_boolean_difference():
+    # Get the collection
+    floors_intersect_collection = bpy.data.collections.get("floors_intersect")
+    if floors_intersect_collection is None:
+        print("Collection 'floors_intersect' not found.")
+        return
+
+    # Get the Plane object
+    plane_object = floors_intersect_collection.objects.get("Floors_Intersect")
+    if plane_object is None:
+        print("Object 'Floors_Intersect' not found.")
+        return
+
+    # Get the floors_intersect object
+    floors_combined_object = floors_intersect_collection.objects.get("Floors_combined")
+    if floors_combined_object is None:
+        print("Object 'Floors_combined' not found.")
+        return
+
+    # Add a boolean modifier to the Plane object
+    bool_mod = plane_object.modifiers.new(name="BooleanMod", type='BOOLEAN')
+    bool_mod.operation = 'DIFFERENCE'
+    bool_mod.object = floors_combined_object
+    bool_mod.solver = 'EXACT'
+    bool_mod.use_self = True
+
+    # Apply the modifier
+    bpy.context.view_layer.objects.active = plane_object
+    #bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+
+def close_holes_deactivate_rendering():
+    # List of collections to deactivate for rendering
+    collections_to_deactivate = ["ifc", "Floors", "Doors", "Windows"]
+    
+    # Deactivate each collection for rendering
+    for collection_name in collections_to_deactivate:
+        collection = bpy.data.collections.get(collection_name)
+        if collection is not None:
+            collection.hide_viewport = True
+        else:
+            print(f"Collection '{collection_name}' not found.")
+
+    # Deactivate boolean modifiers for viewport rendering in 'Floors_Intersect'
+    object_name = "Floors_Intersect"
+    obj = bpy.data.objects.get(object_name)
+    if obj is not None:
+        for mod in obj.modifiers:
+            if mod.type == 'BOOLEAN':
+                mod.show_viewport = False
+    else:
+        print(f"Object '{object_name}' not found.")
+
+
+def close_holes_finish():
+    # List of collections to activate for rendering
+    collections_to_activate = ["ifc", "Floors", "Doors", "Windows"]
+    
+    # Activate each collection for rendering
+    for collection_name in collections_to_activate:
+        collection = bpy.data.collections.get(collection_name)
+        if collection is not None:
+            collection.hide_viewport = False
+        else:
+            print(f"Collection '{collection_name}' not found.")
+
+    # Object to hide in the viewport
+    object_name = "Floors_combined"
+    obj = bpy.data.objects.get(object_name)
+    if obj is not None:
+        obj.hide_viewport = True
+    else:
+        print(f"Object '{object_name}' not found.")
+
+    # Activate and apply boolean modifiers for viewport rendering in 'Floors_Intersect'
+    object_name = "Floors_Intersect"
+    obj = bpy.data.objects.get(object_name)
+    if obj is not None:
+        bpy.context.view_layer.objects.active = obj
+        for mod in obj.modifiers:
+            if mod.type == 'BOOLEAN':
+                mod.show_viewport = True
+                bpy.ops.object.modifier_apply({"object": obj}, modifier=mod.name)
+    else:
+        print(f"Object '{object_name}' not found.")
+
+    # Assign material "floors" to 'Floors_Intersect'
+    floors_material = bpy.data.materials.get("Floors")
+    if floors_material is not None:
+        if obj is not None:
+            if len(obj.data.materials) > 0:
+                # assign to material slot 0
+                obj.data.materials[0] = floors_material
+            else:
+                # no slots
+                obj.data.materials.append(floors_material)
+    else:
+        print("Material 'Floors' not found.")
+
+
+
+             
