@@ -51,12 +51,10 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout.separator()
         layout.operator("esec.function_5", icon="HAND")
         layout.separator()   
-
         layout.label(text="Close holes")        
         row_02 = layout.row(align=True)  # align=True puts operators side by side
         row_02.operator("esec.close_holes_prepare", icon="TRACKING_FORWARDS")        
         row_02.operator("esec.close_holes_finish", icon='CHECKMARK')
-
         layout.separator()        
         layout.label(text="Save/Export")
         row_03 = layout.row(align=True)  # align=True puts operators side by side
@@ -64,12 +62,10 @@ class ESEC_PT_panel(bpy.types.Panel):
         row_03.operator("wm.export_obj_esec", icon='EXPORT')
         layout.operator("esec.export_keyshot_esec", icon='EXPORT')
         layout.separator()
-
         layout.label(text="Render")
         row_04 = layout.row(align=True)  # align=True puts operators side by side
         row_04.operator("esec.setup_renderer", icon='SHADING_RENDERED')
         row_04.operator("esec.render", icon='RENDERLAYERS')
-        
         layout.separator()        
         layout.menu(EsecSubmenu.bl_idname)
         layout.separator()   

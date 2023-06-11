@@ -197,7 +197,7 @@ def unregister():
     del bpy.types.Scene.create_rooms
     del bpy.types.Scene.create_walls
     del bpy.types.Scene.create_windows_doors
-    bpy.utils.unregister_class(ESEC_ARCHIOLOGIC_OT_set_defaults)
+    #bpy.utils.unregister_class(ESEC_ARCHIOLOGIC_OT_set_defaults)
 
 if __name__ == "__main__":
     register()
