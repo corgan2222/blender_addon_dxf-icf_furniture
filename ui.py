@@ -5,6 +5,7 @@ import os
 import re
 import inspect
 import bmesh
+import mathutils
 from mathutils import Vector
 from bpy.types import Panel
 from . import config
@@ -80,7 +81,8 @@ class ESEC_PT_panel(bpy.types.Panel):
             box.prop(props, "storage_height", text="Storage Height")
             box.prop(props, "sideboard_height", text="Sideboard Height")
             box.prop(props, "desk_table_margin", text="Desk Table margin")   
-            box.prop(props, "meeting_table_margin", text="Meeting Table margin") 
+            box.prop(props, "meeting_table_margin", text="Meeting Table margin")          
+        layout.label(text="  stefan.knaak@e-shelter.io")            
 
 
 class OBJECT_OT_DeleteIfcCollection(bpy.types.Operator):
@@ -251,22 +253,26 @@ class ESEC_OT_function_5(bpy.types.Operator):
 
     def execute(self, context):
         print("Rock'n'Roll")  
+
         move_to_closets_collection()
         convert_splines_to_meshes_in_closets()
         create_faces_in_closets_meshes()
         move_objects_to_dxf()
         move_unwanted_objects("dxf")
         rename_objects_dxf("dxf")
+        rename_parking_floors()
         move_objects_to_ifc()
         remove_collection("IfcProject/None")
         move_objects_to_new_collection("IfcSlab/Floor", "ifc", "Floors")  
         move_objects_to_new_collection("IfcDoor/Door", "ifc", "Doors")
-        move_objects_to_new_collection("IfcWindow/Window", "ifc", "Windows")         
+        move_objects_to_new_collection("IfcWindow/Window", "ifc", "Windows")
+        move_objects_to_new_collection("IfcSlab/Parking", "ifc", "Parking")                
         create_tabletops_from_dxf_collection()
         create3D_Objects()
         create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
         create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height) 
         assign_collection_materials()
+        organize_collections() 
         print("all done")        
         return {'FINISHED'}
 
@@ -388,8 +394,28 @@ class EsecSubmenu(bpy.types.Menu):
         layout.operator(OBJECT_OT_DeleteDxfCollection.bl_idname, icon="CANCEL")
         layout.operator(OBJECT_OT_DeleteFurnitureCollection.bl_idname, icon="CANCEL")
         layout.operator("esec.create_simple_chairs", icon="OUTLINER_OB_POINTCLOUD")
-        layout.operator("esec.organize_collections", icon="GRAPH")
+        layout.operator("esec.organize_collections", icon="GRAPH")        
+        layout.operator("esec.select_parking", icon="LATTICE_DATA")
+        layout.operator("esec.prep_parking", icon="REMOVE")
 
+class ESEC_OT_select_parking(bpy.types.Operator):
+    bl_idname = "esec.select_parking"
+    bl_label = "Select Parking"
+    bl_description = "Select all Parking lots"
+
+    def execute(self, context):
+        select_objects_from_collection("Parking", "Structure")  
+        return {'FINISHED'}
+    
+class ESEC_OT_prep_parking(bpy.types.Operator):
+    bl_idname = "esec.prep_parking"
+    bl_label = "Reduce selected by 0.05"
+    bl_description = "Reduce all selected objects by 0.05"
+
+    def execute(self, context):
+        reduce_scale()
+        return {'FINISHED'}
+    
 class ESEC_OT_organize_collections(bpy.types.Operator):
     bl_idname = "esec.organize_collections"
     bl_label = "Organize Collections"
@@ -491,6 +517,8 @@ def register():  # sourcery skip: extract-method
     bpy.utils.register_class(ESEC_OT_organize_collections)
     bpy.utils.register_class(ESEC_OT_close_holes_prepare)
     bpy.utils.register_class(ESEC_OT_close_holes_finish)
+    bpy.utils.register_class(ESEC_OT_select_parking)
+    bpy.utils.register_class(ESEC_OT_prep_parking)
 
 
     wm = bpy.context.window_manager
@@ -531,6 +559,8 @@ def unregister():
     bpy.utils.unregister_class(ESEC_OT_organize_collections)
     bpy.utils.unregister_class(ESEC_OT_close_holes_prepare)
     bpy.utils.unregister_class(ESEC_OT_close_holes_finish)
+    bpy.utils.unregister_class(ESEC_OT_select_parking)
+    bpy.utils.unregister_class(ESEC_OT_prep_parking)    
 
     for km, kmi in addon_keymaps:
         km.keymap_items.remove(kmi)
@@ -593,7 +623,7 @@ def move_unwanted_objects(collection_name):
         bpy.context.scene.collection.children.link(orphan_collection)
         print("Created new collection: 'dxf_orphan'")
 
-    allowed_keywords = ['desk', 'chair', 'sofa', 'table', 'storage', 'sideboard', 'bed', 'stool', 'printer', 'bench', 'toilet', 'urinal', 'sink', 'stair', 'ottoman', 'bank']
+    allowed_keywords = ['desk', 'chair', 'sofa', 'table', 'storage', 'sideboard', 'bed', 'stool', 'printer', 'bench', 'toilet', 'urinal', 'sink', 'stair', 'ottoman', 'bank', 'parking']
     objects_to_move = [
         obj
         for obj in source_collection.objects
@@ -1419,7 +1449,7 @@ def organize_collections():
         bpy.context.scene.collection.children.link(assets_collection)
 
     # List of collections to move to 'Structure'
-    structure_collections = ['ifc', 'Floors', 'Doors', 'Windows', 'floors_intersect']
+    structure_collections = ['ifc', 'Floors', 'Doors', 'Windows', 'floors_intersect', 'Parking']
 
     # List of collections to move to 'DXF'
     dxf_collections = ['dxf', 'dxf_orphan']
@@ -1640,6 +1670,152 @@ def close_holes_finish():
     else:
         print("Material 'Floors' not found.")
 
+##############################
+# parking lots
+# rename parking lots floors
+##############################
+
+def collect_spaces(collection, space_objects):
+    for obj in collection.objects:
+        if 'IfcSlab' in obj.name:
+            space_objects.append(obj)
+
+    for child_collection in collection.children:
+        collect_spaces(child_collection, space_objects)
+
+def collect_text_objects(collection, text_objects):
+    for obj in collection.objects:
+        if obj.type == 'FONT':
+            text_objects.append(obj)
+
+    for child_collection in collection.children:
+        collect_text_objects(child_collection, text_objects)
+
+def sort_spaces_numerically(space_object):
+    number = re.search(r'\d+', space_object.name)
+    return int(number.group(0)) if number else 0
+
+def get_bounding_box(obj):
+    bbox_min = [min(obj.bound_box[i][j] for i in range(8)) for j in range(3)]
+    bbox_max = [max(obj.bound_box[i][j] for i in range(8)) for j in range(3)]
+    return bbox_min, bbox_max
+
+def is_text_inside_space(text_obj, space_obj):
+    text_pos = text_obj.matrix_world.translation
+    bbox_corners = [mathutils.Vector(corner) for corner in space_obj.bound_box]
+    bbox_world_corners = [space_obj.matrix_world @ corner for corner in bbox_corners]
+
+    bbox_min = [min(corner[i] for corner in bbox_world_corners) for i in range(3)]
+    bbox_max = [max(corner[i] for corner in bbox_world_corners) for i in range(3)]
+
+    return bbox_min[0] <= text_pos[0] <= bbox_max[0] and bbox_min[1] <= text_pos[1] <= bbox_max[1]
 
 
-             
+def rename_parking_floors():
+    space_replacements = {}
+    ifc_project_none = bpy.data.collections.get('IfcProject/None')
+
+    if ifc_project_none is None:
+        print("IfcProject/None collection not found.")
+        return
+
+    space_objects = []
+    collect_spaces(ifc_project_none, space_objects)
+
+    text_objects = []
+    collect_text_objects(bpy.context.scene.collection, text_objects)
+
+    sorted_space_objects = sorted(space_objects, key=sort_spaces_numerically)
+    
+    keywords = ['Parking']
+    #keywords = bpy.context.scene.esec_strings_to_keep.split(', ')
+
+    total_texts_found = 0
+
+    for space in sorted_space_objects:
+        bbox_min, bbox_max = get_bounding_box(space)
+        x_length = bbox_max[0] - bbox_min[0]
+        y_length = bbox_max[1] - bbox_min[1]
+        size = x_length * y_length
+
+        #space_output = f"{space.name} - X length: {x_length:.2f}, Y length: {y_length:.2f}, Size: {size:.2f}"
+        space_output = f"{space.name} - "
+
+        texts_found = 0
+        matching_text = ""
+
+        for text_obj in text_objects:
+            cleaned_text = re.sub(r'[^A-Za-z0-9\s.]', '', text_obj.data.body.replace('\n', ' '))
+            cleaned_text = re.sub(r'\s{2,}', ' ', cleaned_text)  # Remove multiple consecutive whitespaces
+
+            if any(keyword in cleaned_text for keyword in keywords) and is_text_inside_space(text_obj, space):
+                texts_found += 1
+                matching_text = cleaned_text
+
+        if texts_found == 1:
+            space_output += f"{matching_text}"
+            print(space_output)
+            total_texts_found += 1
+            space_replacements[space.name] = matching_text
+
+    print(f"Total number of IFC spaces: {len(sorted_space_objects)}")
+    print(f"Total number of texts found in spaces: {total_texts_found}")
+
+    replace_space_names_in_ifc(space_replacements)
+          
+            
+    return space_replacements
+
+def replace_space_names_in_ifc(space_replacements):
+    
+    #space_replacements
+    for space_name, new_space_name in space_replacements.items():
+        space_name_without_prefix = space_name.replace("IfcSlab/", "")
+        print(f"found {space_name_without_prefix} - {new_space_name}")
+        
+        #ifc
+        for obj in bpy.data.objects:
+            # Make sure the object is an IfcSpace                    
+            old_name = obj.name.split('/')[-1]  # Get the last part of the name after '/'
+            # Check if the name follows the expected format
+            if old_name.startswith('Floor_'):                                        
+                if old_name == space_name_without_prefix :            
+                    print("rename " + old_name + " to " + new_space_name)
+                    obj.name = obj.name.replace(old_name, new_space_name)    
+   
+
+def select_objects_from_collection(collection_name, parent_name=None):
+    """Select all objects from a specified collection. 
+    Optionally, specify a parent collection."""
+    
+    # If parent_name is given, find the parent collection
+    if parent_name:
+        parent_col = bpy.data.collections.get(parent_name)
+        if not parent_col:
+            print(f"No collection found with the name {parent_name}.")
+            return
+        # Get the nested collection from the parent collection
+        target_col = parent_col.children.get(collection_name)
+    else:
+        # Otherwise, just get the collection by name from bpy.data.collections
+        target_col = bpy.data.collections.get(collection_name)
+    
+    # If the target collection was found, select its objects
+    if target_col:
+        for obj in target_col.objects:
+            obj.select_set(True)
+    else:
+        print(f"No collection found with the name {collection_name}.")
+
+
+
+
+def reduce_scale():
+    # Iterate through selected objects in the scene
+    for obj in bpy.context.selected_objects:
+        # Check if the object is of type 'MESH'
+        if obj.type == 'MESH':
+            # Reduce the x and y scale by 0.05
+            obj.scale[0] *= (1 - 0.05)
+            obj.scale[1] *= (1 - 0.05)
+         
