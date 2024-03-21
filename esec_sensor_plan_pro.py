@@ -1,7 +1,7 @@
 bl_info = {
-    "name": "ESEC SensorPlan Pro 1.1 ",
+    "name": "ESEC SensorPlan Pro",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 0),
+    "version": (1, 1),
     "blender": (3, 5, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Add to place Sensors or any other devices on a map.",
@@ -334,7 +334,7 @@ class ESEC_OT_save_sensor_types(bpy.types.Operator):
         return {'FINISHED'}
 
 class ESEC_PT_SensorPlanMainPanel(bpy.types.Panel):
-    bl_label = "ESEC SensorPlan Pro"
+    bl_label = "ESEC SensorPlan Pro v"+ str(bl_info['version'])
     bl_idname = "ESEC_PT_SensorPlanMainPanel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'

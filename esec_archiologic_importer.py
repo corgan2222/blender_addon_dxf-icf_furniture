@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC Archiologic Importer",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 1),
+    "version": (1, 2),
     "blender": (2, 93, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Addon to import your Archiologic Data directly into Blender.",
@@ -123,7 +123,7 @@ def create_3d():
         text_collection.objects.link(text_obj)
 
 class ESEC_ARCHIOLOGIC_PT_main_panel(bpy.types.Panel):
-    bl_label = "ESEC Archiologic import"
+    bl_label = "ESEC Archiologic import v"+ str(bl_info['version'])
     bl_idname = "ESEC_ARCHIOLOGIC_PT_main_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'

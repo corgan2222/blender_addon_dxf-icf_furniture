@@ -10,6 +10,28 @@ from mathutils import Vector
 from bpy.types import Panel
 from . import config
 
+class ESEC_OT_OpenAddonPreferences_DXF(bpy.types.Operator):
+    """Show instructions for enabling DXF Import"""
+    bl_idname = "esec.open_addon_preferences_dxf"
+    bl_label = "Enable DXF Import"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        # Show instructions in a Blender pop-up
+        self.report({'INFO'}, "Go to Edit > Preferences > Add-ons and search for 'DXF'. Enable the 'Import-Export: AutoCAD DXF' addon.")
+        return {'FINISHED'}
+
+class ESEC_OT_OpenAddonPreferences_BIM(bpy.types.Operator):
+    """Show instructions for installing Blender BIM Plugin"""
+    bl_idname = "esec.open_addon_preferences_bim"
+    bl_label = "Then install BlenderBim Plugin"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        # Show instructions in a Blender pop-up
+        self.report({'INFO'}, "Go to Edit > Preferences > Add-ons and then click on install. Select the downloaded ZIP File. Then enable the Plugin.")
+        return {'FINISHED'}
+
 def get_version_from_init():
     # Get the directory containing the current script
     current_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
@@ -35,54 +57,90 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout = self.layout
         props = context.scene.esec_addon_props
 
-        layout.label(text="Import")
-        row_01 = layout.row(align=True)  # align=True puts operators side by side
-        row_01.operator("import_scene.dxf_esec", icon="IMPORT") 
-        row_01.operator("import_ifc.bim_esec", icon="IMPORT") 
-        layout.separator()
+        dxf_import_available = self.check_dxf_import_availability()
+        bim_import_available = self.check_ifc_import_availability()
 
-        layout.label(text="Process")
-        layout.operator("esec.function_1", icon="FILE_VOLUME")
-        layout.operator("esec.function_2", icon="FILE_3D")
-        layout.operator("esec.function_3", icon="SNAP_VERTEX")
-        layout.operator("esec.create_3d_chairs", icon="OUTLINER_OB_POINTCLOUD")        
-        #layout.operator("esec.create_storage", icon="SNAP_FACE")
-        #layout.operator("esec.create_sideboard", icon="SNAP_EDGE")
-        layout.operator("esec.assign_materials", icon="IMAGE_RGB_ALPHA")
-        layout.separator()
-        layout.operator("esec.function_5", icon="HAND")
-        layout.separator()   
-        layout.label(text="Close holes")        
-        row_02 = layout.row(align=True)  # align=True puts operators side by side
-        row_02.operator("esec.close_holes_prepare", icon="TRACKING_FORWARDS")        
-        row_02.operator("esec.close_holes_finish", icon='CHECKMARK')
-        layout.separator()        
-        layout.label(text="Save/Export")
-        row_03 = layout.row(align=True)  # align=True puts operators side by side
-        row_03.operator("wm.save_as_esec", icon="FILE_TICK")        
-        row_03.operator("wm.export_obj_esec", icon='EXPORT')
-        layout.operator("esec.export_keyshot_esec", icon='EXPORT')
-        layout.separator()
-        layout.label(text="Render")
-        row_04 = layout.row(align=True)  # align=True puts operators side by side
-        row_04.operator("esec.setup_renderer", icon='SHADING_RENDERED')
-        row_04.operator("esec.render", icon='RENDERLAYERS')
-        layout.separator()        
-        layout.menu(EsecSubmenu.bl_idname)
-        layout.separator()   
-        box = layout.box()
-        row = box.row()
-        row.prop(props, "show_settings", icon="TRIA_DOWN" if props.show_settings else "TRIA_RIGHT", emboss=False)
-        if props.show_settings:
-            box.prop(context.scene, "use_high_poly_models")
-            box.prop(props, "table_height", text="Table Height")
-            box.prop(props, "chair_height", text="Chair Height")
-            box.prop(props, "stool_scale", text="Chairs Scale")
-            box.prop(props, "storage_height", text="Storage Height")
-            box.prop(props, "sideboard_height", text="Sideboard Height")
-            box.prop(props, "desk_table_margin", text="Desk Table margin")   
-            box.prop(props, "meeting_table_margin", text="Meeting Table margin")          
+        if not dxf_import_available:
+            # Display an error message if DXF import is not available
+            layout.label(text="DXF Import not available!", icon='ERROR')
+            # Button to show instructions
+            layout.operator(ESEC_OT_OpenAddonPreferences_DXF.bl_idname, icon='PREFERENCES')
+            layout.separator()
+
+        if not bim_import_available:
+            # Display an error message if DXF import is not available
+            layout.label(text="IFC Import (BlenderBIm) not available!", icon='ERROR')
+            # Button to show instructions
+            layout.operator("wm.url_open", text="Download BlenderBIM").url = "https://github.com/IfcOpenShell/IfcOpenShell/releases/download/blenderbim-230304/blenderbim-230304-py310-win.zip"
+            layout.operator(ESEC_OT_OpenAddonPreferences_BIM.bl_idname, icon='PREFERENCES')
+            layout.separator()
+
+        if dxf_import_available and bim_import_available:
+            layout.label(text="Import")
+            row_01 = layout.row(align=True)  # align=True puts operators side by side
+            row_01.operator("import_scene.dxf_esec", icon="IMPORT") 
+            row_01.operator("import_ifc.bim_esec", icon="IMPORT") 
+            layout.separator()
+
+            layout.label(text="Process")
+            layout.operator("esec.function_1", icon="FILE_VOLUME")
+            layout.operator("esec.function_2", icon="FILE_3D")
+            layout.operator("esec.function_3", icon="SNAP_VERTEX")
+            layout.operator("esec.create_3d_chairs", icon="OUTLINER_OB_POINTCLOUD")        
+            #layout.operator("esec.create_storage", icon="SNAP_FACE")
+            #layout.operator("esec.create_sideboard", icon="SNAP_EDGE")
+            layout.operator("esec.assign_materials", icon="IMAGE_RGB_ALPHA")
+            layout.separator()
+            layout.operator("esec.function_5", icon="HAND")
+            layout.separator()   
+            layout.label(text="Close holes")        
+            row_02 = layout.row(align=True)  # align=True puts operators side by side
+            row_02.operator("esec.close_holes_prepare", icon="TRACKING_FORWARDS")        
+            row_02.operator("esec.close_holes_finish", icon='CHECKMARK')
+            layout.separator()        
+            layout.label(text="Save/Export")
+            row_03 = layout.row(align=True)  # align=True puts operators side by side
+            row_03.operator("wm.save_as_esec", icon="FILE_TICK")        
+            row_03.operator("wm.export_obj_esec", icon='EXPORT')
+            layout.operator("esec.export_keyshot_esec", icon='EXPORT')
+            layout.separator()
+            layout.label(text="Render")
+            row_04 = layout.row(align=True)  # align=True puts operators side by side
+            row_04.operator("esec.setup_renderer", icon='SHADING_RENDERED')
+            row_04.operator("esec.render", icon='RENDERLAYERS')
+            layout.separator()        
+            layout.menu(EsecSubmenu.bl_idname)
+            layout.separator()   
+            box = layout.box()
+            row = box.row()
+            row.prop(props, "show_settings", icon="TRIA_DOWN" if props.show_settings else "TRIA_RIGHT", emboss=False)
+            if props.show_settings:
+                box.prop(context.scene, "use_high_poly_models")
+                box.prop(props, "table_height", text="Table Height")
+                box.prop(props, "chair_height", text="Chair Height")
+                box.prop(props, "stool_scale", text="Chairs Scale")
+                box.prop(props, "storage_height", text="Storage Height")
+                box.prop(props, "sideboard_height", text="Sideboard Height")
+                box.prop(props, "desk_table_margin", text="Desk Table margin")   
+                box.prop(props, "meeting_table_margin", text="Meeting Table margin")
+
         layout.label(text="  stefan.knaak@e-shelter.io")            
+
+    @staticmethod
+    def check_dxf_import_availability():
+        """Check if the DXF import operator is available."""
+        try:
+            return bpy.ops.import_scene.dxf.poll() is not None
+        except AttributeError:
+            return False
+
+    @staticmethod
+    def check_ifc_import_availability():
+        """Check if the IFC import operator is available."""
+        try:
+            return bpy.ops.import_ifc.bim.poll() is not None
+        except AttributeError:
+            return False
 
 
 class OBJECT_OT_DeleteIfcCollection(bpy.types.Operator):
@@ -515,6 +573,8 @@ def register():  # sourcery skip: extract-method
     bpy.utils.register_class(ESEC_OT_close_holes_finish)
     bpy.utils.register_class(ESEC_OT_select_parking)
     bpy.utils.register_class(ESEC_OT_prep_parking)
+    bpy.utils.register_class(ESEC_OT_OpenAddonPreferences_DXF)
+    bpy.utils.register_class(ESEC_OT_OpenAddonPreferences_BIM)
 
 
     wm = bpy.context.window_manager
@@ -556,7 +616,9 @@ def unregister():
     bpy.utils.unregister_class(ESEC_OT_close_holes_prepare)
     bpy.utils.unregister_class(ESEC_OT_close_holes_finish)
     bpy.utils.unregister_class(ESEC_OT_select_parking)
-    bpy.utils.unregister_class(ESEC_OT_prep_parking)    
+    bpy.utils.unregister_class(ESEC_OT_prep_parking) 
+    bpy.utils.unregister_class(ESEC_OT_OpenAddonPreferences_DXF) 
+    bpy.utils.unregister_class(ESEC_OT_OpenAddonPreferences_BIM)        
 
     for km, kmi in addon_keymaps:
         km.keymap_items.remove(kmi)
@@ -1034,7 +1096,8 @@ def create_3Dobject_from_dxf_collection(needles, model_name, new_collection_name
         print(f"strDirectory: {strDirectory} does not exist.")
         return
 
-    imported_object = bpy.ops.import_scene.obj(filepath=file_loc)
+    #imported_object = bpy.ops.import_scene.obj(filepath=file_loc)
+    imported_object = bpy.ops.wm.obj_import(filepath=file_loc)
     selected_obj = bpy.context.selected_objects[0]
 
     collection_to_write = bpy.data.collections.get(new_collection_name)
@@ -1128,7 +1191,7 @@ def create_material(material_name, base_color, specular, roughness):
     principled_bsdf.inputs['Base Color'].default_value = base_color
 
     # Set specular
-    principled_bsdf.inputs['Specular'].default_value = specular
+    #principled_bsdf.inputs['Specular'].default_value = specular
 
     # Set roughness
     principled_bsdf.inputs['Roughness'].default_value = roughness

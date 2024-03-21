@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC ICF-TI Helper",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 5),
+    "version": (1, 6),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Rename IFC Space based on DXF roomnames",
@@ -14,7 +14,6 @@ import bpy
 import re
 import mathutils
 import os
-import ifcopenshell
 import blenderbim.tool as tool
 from blenderbim.bim.ifc import IfcStore
 
