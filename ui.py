@@ -231,12 +231,7 @@ class ESEC_OT_create_3d_chairs(bpy.types.Operator):
         print("Create 3D Objects")
         create3D_Objects()
         print("Create 3D Objects done")
-        print("Create Storage")
-        create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
-        print("Create Storage done")
-        print("Create sideboards")
-        create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height)    
-        print("Create sideboards done")
+
         return {'FINISHED'}
 
 class ESEC_OT_function_5(bpy.types.Operator):
@@ -269,8 +264,9 @@ class ESEC_OT_function_5(bpy.types.Operator):
         move_objects_to_new_collection("IfcSlab/Parking", "ifc", "Parking")                
         create_tabletops_from_dxf_collection()
         create3D_Objects()
-        create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
-        create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height) 
+        # create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
+        # create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height) 
+        # create_squares_from_dxf_collection('Genericsideboard', bpy.context.scene.esec_addon_props.sideboard_height) 
         assign_collection_materials()
         organize_collections() 
         print("all done")        
@@ -623,7 +619,10 @@ def move_unwanted_objects(collection_name):
         bpy.context.scene.collection.children.link(orphan_collection)
         print("Created new collection: 'dxf_orphan'")
 
-    allowed_keywords = ['desk', 'chair', 'sofa', 'table', 'storage', 'sideboard', 'bed', 'stool', 'printer', 'bench', 'toilet', 'urinal', 'sink', 'stair', 'ottoman', 'bank', 'parking']
+    allowed_keywords = ['desk', 'chair', 'sofa', 'table', 'storage', 'sideboard', 
+                        'bed', 'stool', 'printer', 'bench', 'toilet', 'urinal', 'sink', 
+                        'stair', 'ottoman', 'bank', 'parking', 'locker', 'rack'
+                        ]
     objects_to_move = [
         obj
         for obj in source_collection.objects
@@ -901,25 +900,49 @@ def create_stools_from_dxf_collection():
 
 #########################################
 
-def create_squares_from_dxf_object(obj, needle, scaleZ):
-    # Calculate the bounding box dimensions for the object
-    bbox_corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
-    bbox_dimensions = Vector((max(corner[i] for corner in bbox_corners) - min(corner[i] for corner in bbox_corners) for i in range(3)))
-    
-    width, depth, _ = bbox_dimensions
-    #height = 0.8
-    height = bpy.context.scene.esec_addon_props.table_height
-    bpy.ops.mesh.primitive_cube_add(size=1)
-    table_top = bpy.context.active_object
-    table_top.name = obj.name + "_" + needle
-    
-    # Set the scale of the table_top based on the bounding box dimensions
-    table_top.scale.x = width 
-    table_top.scale.y = depth 
-    table_top.scale.z = scaleZ    
+def create_squares_from_dxf_collection(needle, scaleZ):
+    if dxf_collection := bpy.data.collections.get("dxf"):
+        for obj in dxf_collection.objects:
+            if needle in obj.name:
+                create_squares_from_dxf_object(obj, needle, scaleZ)
+    else:
+        print("Collection 'dxf' not found.")
 
-    table_top.location = obj.location
-    table_top.location.z = height - 0.025 / 2
+def create_squares_from_dxf_object(obj, needle, scaleZ):
+    # Apply the inverse rotation to each point of the object to align it with the world axes
+    inv_rot = obj.rotation_euler.to_matrix().inverted()
+
+    local_coords = []
+    for spline in obj.data.splines:
+        if spline.type == 'BEZIER':
+            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.bezier_points)
+        elif spline.type == 'POLY':
+            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.points)
+
+    if not local_coords:
+        print(f"No points found in object {obj.name}")
+        return
+
+    # Calculate the dimensions directly from the transformed vertices
+    width = max(v.x for v in local_coords) - min(v.x for v in local_coords)
+    depth = max(v.y for v in local_coords) - min(v.y for v in local_coords)
+    
+    height = scaleZ
+    bpy.ops.mesh.primitive_cube_add(size=1)
+    new_square = bpy.context.active_object
+    print(f"Create square for {obj.name}")
+    new_square.name = obj.name 
+
+    # Set the scale of the table_top based on the directly calculated dimensions
+    new_square.scale.x = width 
+    new_square.scale.y = depth 
+    new_square.scale.z = 0.025
+
+    new_square.location = obj.location
+    new_square.location.z = height #- 0.025 / 2
+
+    # Now you can apply the original rotation of the object to the table_top
+    new_square.rotation_euler = obj.rotation_euler     
     
     # Ensure the 'furniture' collection exists
     furniture_collection = bpy.data.collections.get(needle)
@@ -928,18 +951,67 @@ def create_squares_from_dxf_object(obj, needle, scaleZ):
         bpy.context.scene.collection.children.link(furniture_collection)
 
     # Link the new table object to the 'furniture' collection and unlink it from the current collection
-    current_collection = table_top.users_collection[0]
-    current_collection.objects.unlink(table_top)
-    furniture_collection.objects.link(table_top)    
+    current_collection = new_square.users_collection[0]
+    current_collection.objects.unlink(new_square)
+    furniture_collection.objects.link(new_square)    
 
+#################################################################################################################
+#########################################
 
-def create_squares_from_dxf_collection(needle, scaleZ):
+def create_full_squares_from_dxf_collection(needle, loc_z, scale_z):
     if dxf_collection := bpy.data.collections.get("dxf"):
         for obj in dxf_collection.objects:
             if needle in obj.name:
-                create_squares_from_dxf_object(obj, needle, scaleZ)
+                create_full_squares_from_dxf_object(obj, needle, loc_z, scale_z)
     else:
         print("Collection 'dxf' not found.")
+
+def create_full_squares_from_dxf_object(obj, needle, loc_z, scale_z):
+    # Apply the inverse rotation to each point of the object to align it with the world axes
+    inv_rot = obj.rotation_euler.to_matrix().inverted()
+
+    local_coords = []
+    for spline in obj.data.splines:
+        if spline.type == 'BEZIER':
+            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.bezier_points)
+        elif spline.type == 'POLY':
+            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.points)
+
+    if not local_coords:
+        print(f"No points found in object {obj.name}")
+        return
+
+    # Calculate the dimensions directly from the transformed vertices
+    width = max(v.x for v in local_coords) - min(v.x for v in local_coords)
+    depth = max(v.y for v in local_coords) - min(v.y for v in local_coords)
+    
+    height = loc_z
+    bpy.ops.mesh.primitive_cube_add(size=1)
+    new_square = bpy.context.active_object
+    print(f"Create square for {obj.name}")
+    new_square.name = obj.name 
+
+    # Set the scale of the table_top based on the directly calculated dimensions
+    new_square.scale.x = width 
+    new_square.scale.y = depth 
+    new_square.scale.z = scale_z
+
+    new_square.location = obj.location
+    new_square.location.z = height #- 0.025 / 2
+
+    # Now you can apply the original rotation of the object to the table_top
+    new_square.rotation_euler = obj.rotation_euler     
+    
+    # Ensure the 'furniture' collection exists
+    furniture_collection = bpy.data.collections.get(needle)
+    if not furniture_collection:
+        furniture_collection = bpy.data.collections.new(needle)
+        bpy.context.scene.collection.children.link(furniture_collection)
+
+    # Link the new table object to the 'furniture' collection and unlink it from the current collection
+    current_collection = new_square.users_collection[0]
+    current_collection.objects.unlink(new_square)
+    furniture_collection.objects.link(new_square)    
 
 #################################################################################################################
 
@@ -1134,6 +1206,7 @@ def assign_collection_materials():
         "outdoor_chair": create_material("outdoor_chair", (0.75, 0.75, 0.75, 1), 0.15, 0.15),
         "Storage": create_material("Storage", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
         "Sideboard": create_material("Sideboard", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "Locker": create_material("Locker", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
         "Bathroom": create_material("Bathroon", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
     }
 
@@ -1300,8 +1373,21 @@ def create3D_Objects():
     create_3Dobject_from_dxf_collection('Sink','sink', 'Bathroom')
     create_3Dobject_from_dxf_collection('Toilet','toilet', 'Bathroom')
     create_3Dobject_from_dxf_collection('Urinal','urinal', 'Bathroom')
-    create_3Dobject_from_dxf_collection('BumperSmallOttoman','pouf', 'Sofas')
-    print("Create 3d objects done")
+    create_3Dobject_from_dxf_collection('BumperSmallOttoman','pouf', 'Sofas')    
+
+    print("Create Storage")
+    create_full_squares_from_dxf_collection('Storage', 0.6, 1.2)    
+    print("Create Storage done")
+
+    print("Create sideboards")
+    create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height)    
+    print("Create sideboards done")
+    
+    create_squares_from_dxf_collection('Genericsideboard', bpy.context.scene.esec_addon_props.sideboard_height)     
+    print("Create Genericsideboard done")
+    
+    create_full_squares_from_dxf_collection('Locker', 1, 2)     
+    print("Create Locker done")
 
 def render_scene(resolution_x, resolution_y):
     global last_imported_dxf_directory, last_imported_dxf_filename
@@ -1455,7 +1541,10 @@ def organize_collections():
     dxf_collections = ['dxf', 'dxf_orphan']
 
     # List of collections to move to 'Assets'
-    asset_collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 'Sofas', 'outdoor_bench', 'outdoor_chair', 'Storage', 'Sideboard', 'Bathroom', 'closets' ]
+    asset_collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 
+                         'Sofas', 'outdoor_bench', 'outdoor_chair', 'Storage', 'Sideboard', 'Bathroom', 
+                         'closets', 'Genericsideboard', 'Locker' 
+                         ]
 
     # Move collections to 'Structure'
     for col_name in structure_collections:
@@ -1481,6 +1570,16 @@ def organize_collections():
             if collection.name not in assets_collection:
                 assets_collection.children.link(collection)
 
+
+    kitchen_collection = bpy.data.collections.get('Kitchen')
+    if not kitchen_collection:
+        kitchen_collection = bpy.data.collections.new('Kitchen')
+        bpy.context.scene.collection.children.link(kitchen_collection)
+
+    stairs_collection = bpy.data.collections.get('Stairs')
+    if not stairs_collection:
+        stairs_collection = bpy.data.collections.new('Stairs')
+        bpy.context.scene.collection.children.link(stairs_collection)
 
 
 ###
