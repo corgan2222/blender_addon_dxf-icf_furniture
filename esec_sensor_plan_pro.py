@@ -21,6 +21,15 @@ import math
 
 keymap_items = []  # Track keymap items to remove them later
 
+def update_sensor_type_color(self, context):
+    # Find the material corresponding to this sensor type
+    mat_name = f"{self.name}_Material"
+    mat = bpy.data.materials.get(mat_name)
+
+    if mat:
+        # If the material exists, update its color
+        mat.diffuse_color = self.color
+
 # Mark the register_keymaps function as persistent so it isn't removed after file load
 @persistent
 def load_handler(dummy):
@@ -101,9 +110,22 @@ def create_device(x, y, sensor_type_name, color=(0.5, 0.0, 0.5, 1), shape='CIRCL
     bm.to_mesh(mesh)
     bm.free()
 
-    mat = bpy.data.materials.new(name=f"{device_name}_Material")
-    mat.diffuse_color = color
-    obj.data.materials.append(mat)
+    # Check if the material already exists
+    mat_name = f"{sensor_type_name}_Material"
+    mat = bpy.data.materials.get(mat_name)
+
+    if not mat:
+        # If the material does not exist, create it
+        mat = bpy.data.materials.new(name=mat_name)
+        mat.diffuse_color = color
+
+    # Assign the material to the object
+    if len(obj.data.materials):
+        # Replace the first material
+        obj.data.materials[0] = mat
+    else:
+        # Add new material
+        obj.data.materials.append(mat)
 
     obj.location = (x, y, 0.0001)
     obj.scale = (0.005 * scale_factor, 0.005 * scale_factor, 0.005 * scale_factor)
@@ -159,18 +181,37 @@ class CreateDeviceAtCursorOperator(bpy.types.Operator):
         sensor_types = context.scene.sensor_types
         sensor_type = next((st for st in sensor_types if st.name == self.sensor_type_name), None)
 
-        if sensor_type is not None:
-            # Convert mouse position to 3D space coordinates
-            mouse_pos = (event.mouse_region_x, event.mouse_region_y)
-            region = context.region
-            rv3d = context.region_data
-            location = region_2d_to_location_3d(region, rv3d, mouse_pos, (0, 0, 0.0001))
+        # Convert mouse position to 3D space coordinates
+        mouse_pos = (event.mouse_region_x, event.mouse_region_y)
+        region = context.region
+        rv3d = context.region_data
+        location = region_2d_to_location_3d(region, rv3d, mouse_pos, (0, 0, 0.0001))        
 
+        # from auto keymap
+        if sensor_type is not None:            
             # Create the device with the properties of the chosen sensor type
             create_device(location[0], location[1], sensor_type.name, color=sensor_type.color, shape=sensor_type.shape)
         else:
-            self.report({'WARNING'}, "Sensor type not found.")
-            return {'CANCELLED'}
+            # from STRG+ALT+D
+            scene = context.scene
+            sensor_plan_props = scene.esec_sensor_plan_properties
+            selected_sensor_type_name = sensor_plan_props.selected_sensor_type   
+
+            self.report({'WARNING'}, f"{selected_sensor_type_name}")             
+
+            # Find the sensor type properties
+            for sensor_type in scene.sensor_types:
+                if sensor_type.name == selected_sensor_type_name:
+                    color = sensor_type.color
+                    shape = sensor_type.shape
+                    break
+
+            else:
+                self.report({'WARNING'}, "Selected sensor type not found.")
+                return {'CANCELLED'}                
+            
+            # Create the device at this location with selected sensor type properties
+            create_device(location[0], location[1], selected_sensor_type_name, color=color, shape=shape)
         
         return {'FINISHED'}
     
@@ -208,7 +249,8 @@ class ESEC_PG_SensorTypeItem(bpy.types.PropertyGroup):
         size=4,
         min=0.0,
         max=1.0,
-        default=(0.5, 0.5, 0.5, 1.0)
+        default=(0.5, 0.5, 0.5, 1.0),
+        update=update_sensor_type_color
     )
     shape: bpy.props.EnumProperty(
         name="Shape",
@@ -239,7 +281,7 @@ class ESEC_PG_SensorPlanProperties(bpy.types.PropertyGroup):
         description="Global scale factor for sensor shapes and text",
         default=1.0,
         min=0.1,
-        max=10.0
+        max=100.0
     )
 
 class ESEC_OT_add_sensor_type(bpy.types.Operator):
@@ -350,14 +392,15 @@ class ESEC_PT_SensorPlanMainPanel(bpy.types.Panel):
             layout.prop(sensor_plan_props, 'scale_factor', text="Scale Factor")            
 
         layout.separator()
-        # Dropdown to select a sensor type
-        #layout.prop(scene.esec_sensor_plan_properties, 'selected_sensor_type', text="Sensor Type")
-        #layout.separator()
         # Button to update sensor naming
         layout.operator("esec.update_sensor_naming", text="Update Sensor Naming", icon='FILE_REFRESH')
         layout.operator(ESEC_OT_CopySensorCountsToClipboard.bl_idname, text="Copy Sensor Counts", icon='COPYDOWN')
         layout.separator()
-        layout.label(text="PRESS STRG+ALT+SHIFT+Number to add a Sensor")  
+        # Dropdown to select a sensor type
+        layout.prop(scene.esec_sensor_plan_properties, 'selected_sensor_type', text="Sensor Type")
+        layout.label(text="PRESS STRG+ALT+D to add a Sensor of the selected type")  
+        layout.separator()
+        layout.label(text="OR PRESS STRG+ALT+SHIFT+Number to add a Sensor directly")  
 
 def register_keymaps():
     global keymap_items
@@ -387,6 +430,10 @@ def register_keymaps():
                 type=key, value='PRESS', ctrl=True, alt=True, shift=True)
             kmi.properties.sensor_type_name = sensor_type_name
             keymap_items.append(kmi)
+
+    #single key for selected type: 
+    kmi = km.keymap_items.new(CreateDeviceAtCursorOperator.bl_idname, type='D', value='PRESS', ctrl=True, alt=True)
+       
 
 
 def unregister_keymaps():
