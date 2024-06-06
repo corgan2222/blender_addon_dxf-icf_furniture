@@ -37,7 +37,7 @@ class ESECAddonProperties(bpy.types.PropertyGroup):
     sideboard_height: bpy.props.FloatProperty(
         name="Sideboard Scale Z",
         description="Height for Sideboard",
-        default=0.2,
+        default=0.6,
         min=0.1,
         max=2
     )    

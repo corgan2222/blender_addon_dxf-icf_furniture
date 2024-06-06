@@ -188,7 +188,7 @@ class OBJECT_OT_DeleteFurnitureCollection(bpy.types.Operator):
 
     def execute(self, context):
 
-        collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 'Sofas', 'outdoor_bench', 'outdoor_chair', 'Storage', 'Sideboard', 'Bathroom', 'closets' , 'Assets']
+        collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 'Sofas', 'outdoor_bench', 'outdoor_chair', 'Storage', 'Sideboard', 'Bathroom', 'closets' , 'Assets', 'RollingContainer']
 
         for collection_name in collections:
             if collection := bpy.data.collections.get(collection_name):
@@ -683,7 +683,7 @@ def move_unwanted_objects(collection_name):
 
     allowed_keywords = ['desk', 'chair', 'sofa', 'table', 'storage', 'sideboard', 
                         'bed', 'stool', 'printer', 'bench', 'toilet', 'urinal', 'sink', 
-                        'stair', 'ottoman', 'bank', 'parking', 'locker', 'rack'
+                        'stair', 'ottoman', 'bank', 'parking', 'locker', 'rack', 'rollingcontainer'
                         ]
     objects_to_move = [
         obj
@@ -1269,6 +1269,7 @@ def assign_collection_materials():
         "outdoor_chair": create_material("outdoor_chair", (0.75, 0.75, 0.75, 1), 0.15, 0.15),
         "Storage": create_material("Storage", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
         "Sideboard": create_material("Sideboard", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
+        "RollingContainer": create_material("RollingContainer", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
         "Locker": create_material("Locker", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
         "Bathroom": create_material("Bathroon", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
     }
@@ -1439,18 +1440,18 @@ def create3D_Objects():
     create_3Dobject_from_dxf_collection('BumperSmallOttoman','pouf', 'Sofas')    
 
     print("Create Storage")
-    create_full_squares_from_dxf_collection('Storage', 0.6, 1.2)    
-    print("Create Storage done")
+    create_full_squares_from_dxf_collection('Storage', 0.6, 1.2)  
 
     print("Create sideboards")
-    create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height)    
-    print("Create sideboards done")
-    
+    create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height)      
     create_squares_from_dxf_collection('Genericsideboard', bpy.context.scene.esec_addon_props.sideboard_height)     
-    print("Create Genericsideboard done")
-    
+
+    print("Create RollingContainer done")
+    create_full_squares_from_dxf_collection('RollingContainer', 0.32, 0.65)     
+
+    print("Create Locker")    
     create_full_squares_from_dxf_collection('Locker', 1, 2)     
-    print("Create Locker done")
+
 
 def render_scene(resolution_x, resolution_y):
     global last_imported_dxf_directory, last_imported_dxf_filename
@@ -1606,7 +1607,7 @@ def organize_collections():
     # List of collections to move to 'Assets'
     asset_collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 
                          'Sofas', 'outdoor_bench', 'outdoor_chair', 'Storage', 'Sideboard', 'Bathroom', 
-                         'closets', 'Genericsideboard', 'Locker' 
+                         'closets', 'Genericsideboard', 'Locker', 'RollingContainer' 
                          ]
 
     # Move collections to 'Structure'
