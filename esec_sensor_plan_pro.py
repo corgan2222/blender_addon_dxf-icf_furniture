@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC SensorPlan Pro",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 1),
+    "version": (1, 2),
     "blender": (3, 5, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Add to place Sensors or any other devices on a map.",
@@ -12,6 +12,7 @@ bl_info = {
 
 import bpy
 import os
+import csv
 import json
 import bmesh
 from bpy_extras.view3d_utils import region_2d_to_location_3d
@@ -19,7 +20,17 @@ from bpy.app.handlers import persistent
 from mathutils import Matrix, Vector
 import math
 
+
 keymap_items = []  # Track keymap items to remove them later
+
+def update_project_meta(self, context):
+    # avoid recursive calls if needed
+    try:
+        bpy.ops.esec.save_project_meta()
+    except Exception as e:
+        # if operator isn’t registered yet, ignore
+        print(f"[ESEC] Could not auto‐save project meta: {e}")
+
 
 def update_sensor_type_color(self, context):
     # Find the material corresponding to this sensor type
@@ -215,22 +226,7 @@ class CreateDeviceAtCursorOperator(bpy.types.Operator):
         
         return {'FINISHED'}
     
-def load_sensor_types():
-    file_path = bpy.path.abspath("//sensor_types.json")
-    if not os.path.exists(file_path):
-        return  # No saved data found
-    
-    with open(file_path, 'r') as infile:
-        sensor_data = json.load(infile)
-    
-    sensor_types = bpy.context.scene.sensor_types
-    sensor_types.clear()  # Clear existing items
-    
-    for sensor in sensor_data:
-        new_type = sensor_types.add()
-        new_type.name = sensor['name']
-        new_type.color = sensor['color']
-        new_type.shape = sensor['shape']
+
 
 
 
@@ -284,6 +280,40 @@ class ESEC_PG_SensorPlanProperties(bpy.types.PropertyGroup):
         max=100.0
     )
 
+# — New Foldout Toggle —
+    show_project_meta: bpy.props.BoolProperty(
+        name="Project Meta",
+        description="Show or hide project metadata inputs",
+        default=False
+    )
+
+    # — New Metadata Fields —
+    customer: bpy.props.StringProperty(
+        name="Customer",
+        default="Customer",
+        update=update_project_meta
+    )
+    city: bpy.props.StringProperty(
+        name="City",
+        default="City",
+        update=update_project_meta
+    )
+    project: bpy.props.StringProperty(
+        name="Project",
+        default="Project",
+        update=update_project_meta
+    )
+    building: bpy.props.StringProperty(
+        name="Building",
+        default="Building",
+        update=update_project_meta
+    )
+    floor: bpy.props.StringProperty(
+        name="Floor",
+        default="Floor",
+        update=update_project_meta
+    )
+
 class ESEC_OT_add_sensor_type(bpy.types.Operator):
     """Add a new sensor type"""
     bl_idname = "esec.add_sensor_type"
@@ -310,6 +340,23 @@ class ESEC_OT_remove_sensor_type(bpy.types.Operator):
         sensor_types = context.scene.sensor_types
         sensor_types.remove(self.index)
         return {'FINISHED'}
+    
+def load_sensor_types():
+    file_path = bpy.path.abspath("//sensor_types.json")
+    if not os.path.exists(file_path):
+        return  # No saved data found
+    
+    with open(file_path, 'r') as infile:
+        sensor_data = json.load(infile)
+    
+    sensor_types = bpy.context.scene.sensor_types
+    sensor_types.clear()  # Clear existing items
+    
+    for sensor in sensor_data:
+        new_type = sensor_types.add()
+        new_type.name = sensor['name']
+        new_type.color = sensor['color']
+        new_type.shape = sensor['shape']    
 
 class ESEC_OT_save_sensor_types(bpy.types.Operator):
     """Save sensor types to a file"""
@@ -330,7 +377,60 @@ class ESEC_OT_save_sensor_types(bpy.types.Operator):
         with open(file_path, 'w') as outfile:
             json.dump(sensor_data, outfile, indent=4)
         
-        self.report({'INFO'}, "Sensor types saved successfully.")
+        self.report({'INFO'}, f"Sensor types saved successfully. {file_path}")
+        return {'FINISHED'}
+
+class ESEC_OT_save_project_meta(bpy.types.Operator):
+    """Save Project Meta into project_metadata.json under a key of the .blend filename"""
+    bl_idname = "esec.save_project_meta"
+    bl_label  = "Save Project Meta"
+
+    def execute(self, context):
+        props = context.scene.esec_sensor_plan_properties
+        
+        # 1. Ensure the .blend is saved
+        blend_path = bpy.data.filepath
+        if not blend_path:
+            self.report({'ERROR'}, "Save your .blend first!")
+            return {'CANCELLED'}
+        
+        # 2. Build JSON paths
+        blend_dir  = bpy.path.abspath("//")
+        json_name  = "project_metadata.json"
+        abs_json   = os.path.join(blend_dir, json_name)
+        blend_file = os.path.basename(blend_path)  # includes .blend extension
+        
+        # 3. Load existing JSON (or start fresh)
+        try:
+            if os.path.exists(abs_json):
+                with open(abs_json, "r") as f:
+                    all_data = json.load(f)
+            else:
+                all_data = {}
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to read {json_name}: {e}")
+            return {'CANCELLED'}
+        
+        # 4. Update the entry for this blend
+        all_data[blend_file] = {
+            "customer": props.customer,
+            "city":     props.city,
+            "project":  props.project,
+            "building": props.building,
+            "floor":    props.floor,
+        }
+        
+        # 5. Write back the JSON
+        try:
+            with open(abs_json, "w") as f:
+                json.dump(all_data, f, indent=2)
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to write {json_name}: {e}")
+            return {'CANCELLED'}
+        
+        # 6. Report success
+        self.report({'INFO'}, f"Saved metadata under key '{blend_file}' in {json_name}")
+        print(f"[ESEC] Updated {json_name} → key: {blend_file}")
         return {'FINISHED'}
 
 class ESEC_PT_SensorPlanMainPanel(bpy.types.Panel):
@@ -347,6 +447,9 @@ class ESEC_PT_SensorPlanMainPanel(bpy.types.Panel):
 
         # Calculate total number of sensors
         total_sensors = sum(sensor_counts.values())
+
+        scene = context.scene
+        props = scene.esec_sensor_plan_properties
 
       # If there are any sensors, display the "Sensor Count" header and the counts for each sensor type
         if total_sensors > 0:
@@ -394,13 +497,28 @@ class ESEC_PT_SensorPlanMainPanel(bpy.types.Panel):
         layout.separator()
         # Button to update sensor naming
         layout.operator("esec.update_sensor_naming", text="Update Sensor Naming", icon='FILE_REFRESH')
-        layout.operator(ESEC_OT_CopySensorCountsToClipboard.bl_idname, text="Copy Sensor Counts", icon='COPYDOWN')
+        layout.operator(ESEC_OT_CopySensorCountsToClipboard.bl_idname, text="Copy and save Sensor Counts", icon='COPYDOWN')
         layout.separator()
         # Dropdown to select a sensor type
         layout.prop(scene.esec_sensor_plan_properties, 'selected_sensor_type', text="Sensor Type")
         layout.label(text="PRESS STRG+ALT+D to add a Sensor of the selected type")  
         layout.separator()
         layout.label(text="OR PRESS STRG+ALT+SHIFT+Number to add a Sensor directly")  
+
+        # — Project Meta Foldout —
+        layout.prop(props, "show_project_meta", icon="TRIA_DOWN" if props.show_project_meta else "TRIA_RIGHT", emboss=False)
+        if props.show_project_meta:
+            box = layout.box()
+            box.prop(props, "customer")
+            box.prop(props, "city")
+            box.prop(props, "project")
+            box.prop(props, "building")
+            box.prop(props, "floor")
+            layout.separator()        
+
+        layout.separator()
+        layout.operator("esec.viewport_render", text="Save Viewport Render", icon='RENDER_STILL')
+        layout.operator("esec.screenshot",       text="Save Screenshot",      icon='IMAGE_DATA')            
 
 def register_keymaps():
     global keymap_items
@@ -472,6 +590,7 @@ def update_sensor_naming():
     count_sensors()                                         
 
 
+
 class ESEC_OT_UpdateSensorNaming(bpy.types.Operator):
     """Update sensor naming to ensure sequential numbering"""
     bl_idname = "esec.update_sensor_naming"
@@ -484,17 +603,192 @@ class ESEC_OT_UpdateSensorNaming(bpy.types.Operator):
         return {'FINISHED'}
 
 class ESEC_OT_CopySensorCountsToClipboard(bpy.types.Operator):
-    """Copy sensor counts to clipboard"""
+    """Copy sensor counts to clipboard and save/update CSV report"""
     bl_idname = "esec.copy_sensor_counts_to_clipboard"
     bl_label = "Copy Sensor Counts"
 
     def execute(self, context):
         copy_sensor_counts_to_clipboard()
-        self.report({'INFO'}, "Sensor counts copied to clipboard.")
+        self.save_to_csv(context)
+        self.report({'INFO'}, "Sensor counts copied and CSV updated.")
+        return {'FINISHED'}
+
+    def save_to_csv(self, context):
+        props = context.scene.esec_sensor_plan_properties
+
+        # build the project key (unchanged)
+        project_key = " ".join((
+            props.customer,
+            props.city,
+            props.project,
+            props.building,
+            props.floor
+        ))
+        building = props.building
+        floor    = props.floor
+
+        # CSV path: <blend_folder>/<foldername>.csv
+        blend_dir   = bpy.path.abspath("//")
+        folder_name = os.path.basename(os.path.normpath(blend_dir))
+        csv_name    = f"{folder_name}.csv"
+        csv_path    = os.path.join(blend_dir, csv_name)
+
+        counts = count_sensors()
+
+        # --- read existing CSV ---
+        if os.path.exists(csv_path):
+            with open(csv_path, newline='') as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+            if rows:
+                header    = rows[0]
+                data_rows = rows[1:]
+            else:
+                header    = ["Project", "Building", "Floor"]
+                data_rows = []
+        else:
+            header    = ["Project", "Building", "Floor"]
+            data_rows = []
+
+        # Ensure Building & Floor columns come right after Project
+        # Remove them if they exist elsewhere, then re-insert
+        for col in ("Building", "Floor"):
+            if col in header:
+                header.remove(col)
+        # Now header starts with at least ["Project"]
+        if "Project" not in header:
+            header.insert(0, "Project")
+        header.insert(1, "Building")
+        header.insert(2, "Floor")
+
+        # Ensure all sensor columns are present
+        for sensor in sorted(counts.keys()):
+            if sensor not in header:
+                header.append(sensor)
+
+        # Build dict rows
+        dict_rows = []
+        for row in data_rows:
+            d = {col: (row[i] if i < len(row) else "0") for i, col in enumerate(header)}
+            dict_rows.append(d)
+
+        # Update or append current project
+        updated = False
+        for d in dict_rows:
+            if d.get("Project") == project_key:
+                d["Building"] = building
+                d["Floor"]    = floor
+                for sensor, cnt in counts.items():
+                    d[sensor] = str(cnt)
+                updated = True
+                break
+
+        if not updated:
+            new = {col: "0" for col in header}
+            new["Project"]  = project_key
+            new["Building"] = building
+            new["Floor"]    = floor
+            for sensor, cnt in counts.items():
+                new[sensor] = str(cnt)
+            dict_rows.append(new)
+
+        # --- write back ---
+        with open(csv_path, "w", newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            for d in dict_rows:
+                writer.writerow([d[col] for col in header])
+
+# 1) Viewport OpenGL “screenshot” via scene.render.filepath
+class ESEC_OT_ViewportRender(bpy.types.Operator):
+    """Render the active 3D Viewport at full viewport resolution (grid hidden) and save as an image"""
+    bl_idname = "esec.viewport_render"
+    bl_label  = "Viewport Render (Full Res, No Grid)"
+
+    def execute(self, context):
+        # 1) Ensure the file is saved
+        blend_fp = bpy.data.filepath
+        if not blend_fp:
+            self.report({'ERROR'}, "Please save your .blend before rendering.")
+            return {'CANCELLED'}
+
+        # 2) Find the 3D Viewport region to get size
+        region = next((r for r in context.area.regions if r.type == 'WINDOW'), None)
+        if not region:
+            self.report({'ERROR'}, "Cannot find the viewport region.")
+            return {'CANCELLED'}
+        width, height = region.width, region.height
+
+        # 3) Build output path
+        blend_dir  = bpy.path.abspath("//")
+        blend_name = os.path.splitext(os.path.basename(blend_fp))[0]
+        out_path   = os.path.join(blend_dir, f"{blend_name}_view.png")
+
+        # 4) Backup render settings
+        scene = context.scene
+        rd    = scene.render
+        old_fp  = rd.filepath
+        old_x   = rd.resolution_x
+        old_y   = rd.resolution_y
+        old_pct = rd.resolution_percentage
+
+        # 5) Backup and disable grid
+        space = context.space_data  # active SpaceView3D
+        ov    = space.overlay
+        old_grid = ov.show_floor
+        ov.show_floor = False
+
+        # 6) Override render settings for full-res + file path
+        rd.filepath             = out_path
+        rd.resolution_x         = width
+        rd.resolution_y         = height
+        rd.resolution_percentage = 100
+
+        # 7) Do the OpenGL render
+        bpy.ops.render.opengl(write_still=True, view_context=True)
+
+        # 8) Restore everything
+        rd.filepath             = old_fp
+        rd.resolution_x         = old_x
+        rd.resolution_y         = old_y
+        rd.resolution_percentage = old_pct
+        ov.show_floor           = old_grid
+
+        self.report({'INFO'}, f"Viewport render saved at {width}x{height} to:\n{out_path}")
         return {'FINISHED'}
 
 
+
+
+# 2) Screenshot of the active area (no `full=` flag)
+class ESEC_OT_ScreenShot(bpy.types.Operator):
+    """Take a screenshot of the active Blender area (e.g. 3D View)"""
+    bl_idname = "esec.screenshot"
+    bl_label  = "Area Screenshot"
+
+    def execute(self, context):
+        blend_fp = bpy.data.filepath
+        if not blend_fp:
+            self.report({'ERROR'}, "Please save your .blend before screenshot.")
+            return {'CANCELLED'}
+
+        blend_dir  = bpy.path.abspath("//")
+        blend_name = os.path.splitext(os.path.basename(blend_fp))[0]
+        out_path   = os.path.join(blend_dir, f"{blend_name}_screenshot.png")
+
+        # Only filepath—this captures the active area
+        bpy.ops.screen.screenshot(filepath=out_path)
+
+        self.report({'INFO'}, f"Screenshot saved to:\n{out_path}")
+        return {'FINISHED'}
+
+
+
 def register():
+    bpy.utils.register_class(ESEC_OT_save_project_meta)
+    bpy.utils.register_class(ESEC_OT_ViewportRender)
+    bpy.utils.register_class(ESEC_OT_ScreenShot)
+
     bpy.utils.register_class(ESEC_PG_SensorTypeItem)
     bpy.utils.register_class(ESEC_PG_SensorPlanProperties)
     bpy.utils.register_class(ESEC_OT_add_sensor_type)
@@ -503,7 +797,7 @@ def register():
     bpy.utils.register_class(ESEC_PT_SensorPlanMainPanel)
     bpy.utils.register_class(CreateDeviceAtCursorOperator)
     bpy.utils.register_class(ESEC_OT_UpdateSensorNaming)
-    bpy.utils.register_class(ESEC_OT_CopySensorCountsToClipboard)
+    bpy.utils.register_class(ESEC_OT_CopySensorCountsToClipboard)   
     
     bpy.types.Scene.sensor_types = bpy.props.CollectionProperty(type=ESEC_PG_SensorTypeItem)
     bpy.types.Scene.esec_sensor_plan_properties = bpy.props.PointerProperty(type=ESEC_PG_SensorPlanProperties)
@@ -511,11 +805,15 @@ def register():
     # Load sensor types from file
     bpy.app.timers.register(load_sensor_types) 
     bpy.app.handlers.load_post.append(load_handler)
+    
    
 
 def unregister():
     del bpy.types.Scene.sensor_types
     del bpy.types.Scene.esec_sensor_plan_properties
+
+    bpy.utils.unregister_class(ESEC_OT_ScreenShot)
+    bpy.utils.unregister_class(ESEC_OT_ViewportRender)    
     
     bpy.utils.unregister_class(ESEC_PT_SensorPlanMainPanel)
     bpy.utils.unregister_class(ESEC_OT_save_sensor_types)
@@ -526,6 +824,8 @@ def unregister():
     bpy.utils.unregister_class(CreateDeviceAtCursorOperator)
     bpy.utils.unregister_class(ESEC_OT_UpdateSensorNaming)
     bpy.utils.unregister_class(ESEC_OT_CopySensorCountsToClipboard)
+
+    bpy.utils.unregister_class(ESEC_OT_save_project_meta)
 
     if load_handler in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(load_handler)
