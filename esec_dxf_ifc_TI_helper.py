@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC ICF-TI Helper",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 6),
+    "version": (1, 7),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Rename IFC Space based on DXF roomnames",
@@ -69,46 +69,58 @@ def rename_spaces():
   
 
 def move_objects_to_new_collection():
-    # Create a new collection
-    new_collection = bpy.data.collections.new('dxf')
-    
-    # Link the new collection to the current scene
-    bpy.context.scene.collection.children.link(new_collection)
-    
-    # Get a list of all objects in the current scene
+    # Create or get the 'dxf' collection
+    dxf_collection = bpy.data.collections.get('dxf')
+    if not dxf_collection:
+        dxf_collection = bpy.data.collections.new('dxf')
+        bpy.context.scene.collection.children.link(dxf_collection)
+
+    # Create subcollections 'dxf_text' and 'dxf_building'
+    dxf_text = bpy.data.collections.get('dxf_text')
+    if not dxf_text:
+        dxf_text = bpy.data.collections.new('dxf_text')
+        dxf_collection.children.link(dxf_text)
+
+    dxf_building = bpy.data.collections.get('dxf_building')
+    if not dxf_building:
+        dxf_building = bpy.data.collections.new('dxf_building')
+        dxf_collection.children.link(dxf_building)
+
+    # Get all objects in the current scene root collection
     all_objects = list(bpy.context.scene.collection.objects)
-    
-    # Move all objects to the new collection
+
     for obj in all_objects:
-        # Check if the object is a collection
+        # Skip collection instances
         if obj.type == 'EMPTY' and obj.instance_collection:
             continue
-        # Unlink the object from its current collection
+
+        # Unlink from the root collection
         bpy.context.scene.collection.objects.unlink(obj)
-        # Link the object to the new collection
-        new_collection.objects.link(obj)
 
-
+        # Link to appropriate subcollection
+        if obj.type == 'FONT':
+            dxf_text.objects.link(obj)
+        else:
+            dxf_building.objects.link(obj)
 
 def delete_unwanted_text_objects_from_dxf():
     # Define the list of strings to look for
     strings_to_keep = bpy.context.scene.esec_strings_to_keep.split(', ')
     print(strings_to_keep)
-    #strings_to_keep = ['North', 'South', 'West', 'East', 'Central']
 
-    # Get the 'dxf' collection
-    dxf_collection = bpy.data.collections.get('dxf')
+    # Get the 'dxf_text' collection
+    dxf_text_collection = bpy.data.collections.get('dxf_text')
 
     # If the collection doesn't exist, there's nothing to do
-    if not dxf_collection:
-        print("'dxf' collection does not exist.")
+    if not dxf_text_collection:
+        print("'dxf_text' collection does not exist.")
         return
 
     # Deselect all objects
     bpy.ops.object.select_all(action='DESELECT')
 
-    # Loop over all objects in the 'dxf' collection
-    for obj in dxf_collection.objects:
+    # Loop over all objects in the 'dxf_text' collection
+    for obj in dxf_text_collection.objects:
         # Check if the object is a text object
         if obj.type == 'FONT':
             # If the object's text does not contain any of the specified strings, select it
@@ -118,6 +130,7 @@ def delete_unwanted_text_objects_from_dxf():
 
     # Delete all selected objects at once
     bpy.ops.object.delete()
+
     
 #######################################################
 
@@ -317,10 +330,14 @@ class ESEC_PT_MainPanel(bpy.types.Panel):
         layout.prop(context.scene, "esec_strings_to_keep")      
         layout.operator("esec.prepare_dxf", icon="FILE_VOLUME")
         layout.separator()
-        layout.label(text="Clean up and prepare the DXF ")      
-        layout.label(text="Move the DXF over the IFC")      
-        layout.label(text="Move all room names inside spaces")              
-        layout.label(text="Move only the DXF!!")      
+        layout.label(text="1. Use Autocad to open the DWG")      
+        layout.label(text="2. Clean up layers. Command: laydel+N")              
+        layout.label(text="4. Export as DXF")      
+        layout.label(text="5. Prepare Archi IFC Export. ")      
+        layout.label(text="6. Delete columns")      
+        layout.label(text="7. Export as IFC")      
+        layout.label(text="8. Blender: Move all room names inside spaces")              
+        layout.label(text="9. Move only the DXF!!")      
         layout.separator()
         layout.operator("esec.rename_spaces", icon="SNAP_VERTEX")
         layout.prop(context.scene, "esec_dry_run")
