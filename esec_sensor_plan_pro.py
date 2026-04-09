@@ -10,20 +10,21 @@ bl_info = {
     "category": "3D View",
 }
 
-import bpy
-import os
 import csv
 import json
-import bmesh
-from bpy_extras.view3d_utils import region_2d_to_location_3d
-from bpy.app.handlers import persistent
-from mathutils import Matrix, Vector
 import math
+import os
 
+import bmesh
+import bpy
+from bpy.app.handlers import persistent
+from bpy_extras.view3d_utils import region_2d_to_location_3d
+from mathutils import Matrix, Vector
 
 keymap_items = []  # Track keymap items to remove them later
 
 def update_project_meta(self, context):
+    """Property update callback: auto-saves project metadata to JSON whenever a metadata field changes."""
     # avoid recursive calls if needed
     try:
         bpy.ops.esec.save_project_meta()
@@ -33,6 +34,7 @@ def update_project_meta(self, context):
 
 
 def update_sensor_type_color(self, context):
+    """Property update callback: syncs the Blender material diffuse color whenever a sensor type's color property changes."""
     # Find the material corresponding to this sensor type
     mat_name = f"{self.name}_Material"
     mat = bpy.data.materials.get(mat_name)
@@ -44,9 +46,11 @@ def update_sensor_type_color(self, context):
 # Mark the register_keymaps function as persistent so it isn't removed after file load
 @persistent
 def load_handler(dummy):
+    """Persistent load_post handler: re-registers keymaps 1 second after a .blend file is loaded."""
     bpy.app.timers.register(register_keymaps, first_interval=1.0)
 
 def copy_sensor_counts_to_clipboard():
+    """Copies sensor counts (with filename header) to the system clipboard as plain text."""
     # Check if the file is saved and get the filename, otherwise indicate it's unsaved
     file_path = bpy.data.filepath
     if file_path:
@@ -66,6 +70,7 @@ def copy_sensor_counts_to_clipboard():
 
 
 def count_sensors():
+    """Returns a dict of {sensor_type_name: count} by counting top-level objects in each sensor collection."""
     sensor_counts = {}
     for sensor_type in bpy.context.scene.sensor_types:
         collection_name = sensor_type.name
@@ -77,7 +82,8 @@ def count_sensors():
     return sensor_counts
 
 def create_device(x, y, sensor_type_name, color=(0.5, 0.0, 0.5, 1), shape='CIRCLE', device_number=1):
-
+    """Creates a sensor device mesh (circle/square/diamond/hexagon) at (x, y) with a numbered text child,
+    assigns a colored material, and links it into the named sensor collection."""
     # Retrieve the global scale factor
     scale_factor = bpy.context.scene.esec_sensor_plan_properties.scale_factor
 
@@ -179,7 +185,7 @@ def create_device(x, y, sensor_type_name, color=(0.5, 0.0, 0.5, 1), shape='CIRCL
     sensor_collection.objects.link(text_obj)    
 
 
-class CreateDeviceAtCursorOperator(bpy.types.Operator):
+class ESEC_OT_CreateDeviceAtCursor(bpy.types.Operator):
     """Place a device at the current mouse viewport position based on sensor type"""
     bl_idname = "view3d.device_create_at_cursor"
     bl_label = "Create Device at Cursor"
@@ -231,12 +237,14 @@ class CreateDeviceAtCursorOperator(bpy.types.Operator):
 
 
 def sensor_type_items(self, context):
+    """Dynamic EnumProperty callback: returns the current list of sensor type names as enum items."""
     items = [(sensor.name, sensor.name, "") for sensor in context.scene.sensor_types]
     if not items:
         items = [("NONE", "None available", "No sensors available")]
     return items
 
 class ESEC_PG_SensorTypeItem(bpy.types.PropertyGroup):
+    """PropertyGroup for a single sensor type: name, RGBA color, and shape (circle/square/diamond/hexagon)."""
     name: bpy.props.StringProperty(name="Type Name", description="Unique type name for the sensor")
     color: bpy.props.FloatVectorProperty(
         name="Color",
@@ -261,6 +269,7 @@ class ESEC_PG_SensorTypeItem(bpy.types.PropertyGroup):
     )
 
 class ESEC_PG_SensorPlanProperties(bpy.types.PropertyGroup):
+    """Scene-level PropertyGroup holding all SensorPlan Pro settings: selected type, UI toggles, scale factor, and project metadata."""
     selected_sensor_type: bpy.props.EnumProperty(
         name="Select Sensor Type",
         description="Choose a sensor type",
@@ -342,6 +351,7 @@ class ESEC_OT_remove_sensor_type(bpy.types.Operator):
         return {'FINISHED'}
     
 def load_sensor_types():
+    """Loads sensor type definitions from sensor_types.json next to the .blend file into the scene's sensor_types collection."""
     file_path = bpy.path.abspath("//sensor_types.json")
     if not os.path.exists(file_path):
         return  # No saved data found
@@ -434,7 +444,8 @@ class ESEC_OT_save_project_meta(bpy.types.Operator):
         return {'FINISHED'}
 
 class ESEC_PT_SensorPlanMainPanel(bpy.types.Panel):
-    bl_label = "ESEC SensorPlan Pro v"+ str(bl_info['version'])
+    """Main sidebar panel for SensorPlan Pro: sensor counts, type management, placement controls, project metadata, and render/screenshot buttons."""
+    bl_label = "ESEC SensorPlan Pro v" + ".".join(map(str, bl_info['version']))
     bl_idname = "ESEC_PT_SensorPlanMainPanel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -521,6 +532,7 @@ class ESEC_PT_SensorPlanMainPanel(bpy.types.Panel):
         layout.operator("esec.screenshot",       text="Save Screenshot",      icon='IMAGE_DATA')            
 
 def register_keymaps():
+    """Registers addon keymaps: CTRL+ALT+SHIFT+1-9 for direct sensor type placement, CTRL+ALT+D for selected type."""
     global keymap_items
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
@@ -544,28 +556,30 @@ def register_keymaps():
             sensor_type_name = sensor_types[i].name  # Get sensor type name by index
             # Register keymap with CTRL+ALT+SHIFT modifiers
             kmi = km.keymap_items.new(
-                CreateDeviceAtCursorOperator.bl_idname,
+                ESEC_OT_CreateDeviceAtCursor.bl_idname,
                 type=key, value='PRESS', ctrl=True, alt=True, shift=True)
             kmi.properties.sensor_type_name = sensor_type_name
             keymap_items.append(kmi)
 
     #single key for selected type: 
-    kmi = km.keymap_items.new(CreateDeviceAtCursorOperator.bl_idname, type='D', value='PRESS', ctrl=True, alt=True)
+    kmi = km.keymap_items.new(ESEC_OT_CreateDeviceAtCursor.bl_idname, type='D', value='PRESS', ctrl=True, alt=True)
        
 
 
 def unregister_keymaps():
+    """Removes all addon keymap entries registered by register_keymaps()."""
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
     if kc:
         km = kc.keymaps.get('3D View')
         if km:
             for kmi in km.keymap_items:
-                if kmi.idname == CreateDeviceAtCursorOperator.bl_idname:
+                if kmi.idname == ESEC_OT_CreateDeviceAtCursor.bl_idname:
                     km.keymap_items.remove(kmi)
                     break
 
 def update_sensor_naming():
+    """Renumbers all sensor objects in each sensor collection sequentially (001, 002, …) and updates their text child labels."""
     for sensor_type in bpy.context.scene.sensor_types:
         collection_name = sensor_type.name
         if collection_name in bpy.data.collections:
@@ -785,6 +799,7 @@ class ESEC_OT_ScreenShot(bpy.types.Operator):
 
 
 def register():
+    """Registers all SensorPlan Pro classes, scene properties, keymaps, and load handler."""
     bpy.utils.register_class(ESEC_OT_save_project_meta)
     bpy.utils.register_class(ESEC_OT_ViewportRender)
     bpy.utils.register_class(ESEC_OT_ScreenShot)
@@ -795,7 +810,7 @@ def register():
     bpy.utils.register_class(ESEC_OT_remove_sensor_type)
     bpy.utils.register_class(ESEC_OT_save_sensor_types)
     bpy.utils.register_class(ESEC_PT_SensorPlanMainPanel)
-    bpy.utils.register_class(CreateDeviceAtCursorOperator)
+    bpy.utils.register_class(ESEC_OT_CreateDeviceAtCursor)
     bpy.utils.register_class(ESEC_OT_UpdateSensorNaming)
     bpy.utils.register_class(ESEC_OT_CopySensorCountsToClipboard)   
     
@@ -809,6 +824,7 @@ def register():
    
 
 def unregister():
+    """Unregisters all SensorPlan Pro classes, removes scene properties, keymaps, and load handler."""
     del bpy.types.Scene.sensor_types
     del bpy.types.Scene.esec_sensor_plan_properties
 
@@ -821,7 +837,7 @@ def unregister():
     bpy.utils.unregister_class(ESEC_OT_add_sensor_type)
     bpy.utils.unregister_class(ESEC_PG_SensorPlanProperties)
     bpy.utils.unregister_class(ESEC_PG_SensorTypeItem)
-    bpy.utils.unregister_class(CreateDeviceAtCursorOperator)
+    bpy.utils.unregister_class(ESEC_OT_CreateDeviceAtCursor)
     bpy.utils.unregister_class(ESEC_OT_UpdateSensorNaming)
     bpy.utils.unregister_class(ESEC_OT_CopySensorCountsToClipboard)
 

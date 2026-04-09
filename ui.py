@@ -1,14 +1,28 @@
-import bpy
-import os
+import inspect
 import math
 import os
 import re
-import inspect
+
 import bmesh
+import bpy
 import mathutils
-from mathutils import Vector
 from bpy.types import Panel
-from . import config
+from mathutils import Vector
+
+from . import config, esec_archiologic_importer
+
+
+def _get_prefs():
+    """Return the addon's ESECAddonPreferences, or None if not yet registered."""
+    try:
+        return bpy.context.preferences.addons[__package__].preferences
+    except Exception:
+        return None
+
+def _debug_mode():
+    """Return True if the addon's debug_mode preference is enabled."""
+    prefs = _get_prefs()
+    return prefs.debug_mode if prefs else False
 
 class ESEC_OT_OpenAddonPreferences_DXF(bpy.types.Operator):
     """Show instructions for enabling DXF Import"""
@@ -24,7 +38,7 @@ class ESEC_OT_OpenAddonPreferences_DXF(bpy.types.Operator):
 class ESEC_OT_OpenAddonPreferences_BIM(bpy.types.Operator):
     """Show instructions for installing Blender BIM Plugin"""
     bl_idname = "esec.open_addon_preferences_bim"
-    bl_label = "Then install BlenderBim Plugin"
+    bl_label = "Then install Bonsai Plugin"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -33,7 +47,9 @@ class ESEC_OT_OpenAddonPreferences_BIM(bpy.types.Operator):
         return {'FINISHED'}
 
 def get_version_from_init():
-    # Get the directory containing the current script
+    """Read the addon version tuple from __init__.py and return it as 'X.Y.Z' string.
+    Used to display the version in the panel header without importing __init__ directly.
+    """
     current_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
     # Construct the full path to the __init__.py file
@@ -47,7 +63,7 @@ def get_version_from_init():
 
 # Panel class
 class ESEC_PT_panel(bpy.types.Panel):
-    bl_label = "ESEC 3D Floorplan Creator " + get_version_from_init()
+    bl_label = "ESEC 3D Floorplan Creator v" + get_version_from_init()
     bl_idname = "ESEC_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -57,94 +73,73 @@ class ESEC_PT_panel(bpy.types.Panel):
         layout = self.layout
         props = context.scene.esec_addon_props
 
-        dxf_import_available = self.check_dxf_import_availability()
         bim_import_available = self.check_ifc_import_availability()
 
-        if not dxf_import_available:
-            # Display an error message if DXF import is not available
-            layout.label(text="DXF Import not available!", icon='ERROR')
-            # Button to show instructions
+        if not bim_import_available:
             layout.operator(ESEC_OT_OpenAddonPreferences_DXF.bl_idname, icon='PREFERENCES')
             layout.separator()
 
         if not bim_import_available:
             # Display an error message if DXF import is not available
-            layout.label(text="IFC Import (BlenderBIm) not available!", icon='ERROR')
+            layout.label(text="IFC Import (Bonsai) not available!", icon='ERROR')
             # Button to show instructions
-            layout.operator("wm.url_open", text="Download BlenderBIM").url = "https://github.com/IfcOpenShell/IfcOpenShell/releases/download/blenderbim-230304/blenderbim-230304-py310-win.zip"
+            layout.operator("wm.url_open", text="Download Bonsai").url = "https://github.com/IfcOpenShell/IfcOpenShell/releases"
             layout.operator(ESEC_OT_OpenAddonPreferences_BIM.bl_idname, icon='PREFERENCES')
             layout.separator()
 
-        if dxf_import_available and bim_import_available:
+        if bim_import_available:
             layout.label(text="Import")
-            row_01 = layout.row(align=True)  # align=True puts operators side by side
-            row_01.operator("import_scene.dxf_esec", icon="IMPORT") 
-            row_01.operator("import_ifc.bim_esec", icon="IMPORT") 
+            layout.operator("esec.import_ifc_manual", icon="IMPORT")
             layout.separator()
-
             layout.label(text="Process")
-            layout.operator("esec.function_1", icon="FILE_VOLUME")
-            layout.operator("esec.function_2", icon="FILE_3D")
-            layout.operator("esec.function_3", icon="SNAP_VERTEX")
-            layout.operator("esec.create_3d_chairs", icon="OUTLINER_OB_POINTCLOUD")        
-            #layout.operator("esec.create_storage", icon="SNAP_FACE")
-            #layout.operator("esec.create_sideboard", icon="SNAP_EDGE")
-            layout.operator("esec.assign_materials", icon="IMAGE_RGB_ALPHA")
-            layout.separator()
-            layout.operator("esec.function_5", icon="HAND")
+            layout.operator("esec.process_ifc", icon="HAND")
             layout.separator()   
-            layout.label(text="Close holes")        
-            row_02 = layout.row(align=True)  # align=True puts operators side by side
-            row_02.operator("esec.close_holes_prepare", icon="TRACKING_FORWARDS")        
-            row_02.operator("esec.close_holes_finish", icon='CHECKMARK')
-            layout.separator()        
+            layout.separator()
             layout.label(text="Save/Export")
             row_03 = layout.row(align=True)  # align=True puts operators side by side
-            row_03.operator("wm.save_as_esec", icon="FILE_TICK")        
-            row_03.operator("wm.export_obj_esec", icon='EXPORT')
-            layout.operator("esec.export_keyshot_esec", icon='EXPORT')
+            row_03.operator("esec.save_as", icon="FILE_TICK")        
+            row_03.operator("esec.export_obj", icon='EXPORT')
+            layout.operator("esec.export_keyshot", icon='EXPORT')
             layout.separator()
             layout.label(text="Render")
-            row_04 = layout.row(align=True)  # align=True puts operators side by side
-            row_04.operator("esec.setup_renderer", icon='SHADING_RENDERED')
+            layout.operator("esec.setup_renderer", icon='SHADING_RENDERED')
+            row_04 = layout.row(align=True)
             row_04.operator("esec.render", icon='RENDERLAYERS')
+            if _last_render_path and os.path.isfile(_last_render_path):
+                row_04.operator("esec.open_render_folder", text="", icon='FILE_FOLDER')
+                row_04.operator("esec.open_render_image", text="", icon='IMAGE_DATA')
             layout.separator()        
-            layout.menu(EsecSubmenu.bl_idname)
+            layout.menu(ESEC_MT_Tools.bl_idname)
             layout.separator()   
             box = layout.box()
             row = box.row()
             row.prop(props, "show_settings", icon="TRIA_DOWN" if props.show_settings else "TRIA_RIGHT", emboss=False)
             if props.show_settings:
-                box.prop(context.scene, "use_high_poly_models")
-                box.prop(props, "table_height", text="Table Height")
-                box.prop(props, "chair_height", text="Chair Height")
-                box.prop(props, "stool_scale", text="Chairs Scale")
-                box.prop(props, "storage_height", text="Storage Height")
-                box.prop(props, "sideboard_height", text="Sideboard Height")
-                box.prop(props, "desk_table_margin", text="Desk Table margin")   
-                box.prop(props, "meeting_table_margin", text="Meeting Table margin")
+                prefs = _get_prefs()
+                if prefs:
+                    box.prop(prefs, "repair_missing_walls", text="Repair missing walls on IFC import")
+                    box.prop(prefs, "debug_mode", text="Debug Mode")
 
         layout.label(text="  stefan.knaak@e-shelter.io")            
 
-    @staticmethod
-    def check_dxf_import_availability():
-        """Check if the DXF import operator is available."""
-        try:
-            return bpy.ops.import_scene.dxf.poll() is not None
-        except AttributeError:
-            return False
 
     @staticmethod
     def check_ifc_import_availability():
-        """Check if the IFC import operator is available."""
+        """Check if the IFC import operator is available (Bonsai or BlenderBIM)."""
         try:
-            return bpy.ops.import_ifc.bim.poll() is not None
+            return bpy.ops.bim.load_project.poll() is not None
         except AttributeError:
-            return False
+            try:
+                return bpy.ops.import_ifc.bim.poll() is not None
+            except AttributeError:
+                return False
 
 
-class OBJECT_OT_DeleteIfcCollection(bpy.types.Operator):
-    bl_idname = "object.delete_ifc_collection"
+class ESEC_OT_DeleteIfcCollection(bpy.types.Operator):
+    """Remove the Structure collections (ifc, Floors, Doors, Windows, etc.) from the scene.
+    Used in the Tools menu to reset the IFC side before re-running Process IFC.
+    """
+    bl_idname = "esec.delete_ifc_collection"
     bl_label = "Delete 'Structur' Collection"
     bl_options = {'REGISTER', 'UNDO'}
     bl_description = "Deletes all structure Collections"
@@ -162,27 +157,12 @@ class OBJECT_OT_DeleteIfcCollection(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class OBJECT_OT_DeleteDxfCollection(bpy.types.Operator):
-    bl_idname = "object.delete_dxf_collection"
-    bl_label = "Delete 'dxf' Collection"
-    bl_options = {'REGISTER', 'UNDO'}
-    bl_description = "Deletes the DXF Collections"
 
-    def execute(self, context):
-
-        collections = ['dxf', 'dxf_orphan', 'DXF']
-
-        for collection_name in collections:
-            if collection := bpy.data.collections.get(collection_name):
-                bpy.data.collections.remove(collection)
-                print(f"Deleted '{collection_name}' collection.")
-            else:
-                print(f"Collection '{collection_name}' not found.")
-
-        return {'FINISHED'}
-
-class OBJECT_OT_DeleteFurnitureCollection(bpy.types.Operator):
-    bl_idname = "object.delete_furniture_collection"
+class ESEC_OT_DeleteFurnitureCollection(bpy.types.Operator):
+    """Remove all Assets/furniture collections (tables, chairs, sofas, etc.) from the scene.
+    Used in the Tools menu to reset the furniture side before re-running Step 4.
+    """
+    bl_idname = "esec.delete_furniture_collection"
     bl_label = "Delete Furniture Collection"
     bl_description = "Deletes all furniture Collections"
 
@@ -200,211 +180,128 @@ class OBJECT_OT_DeleteFurnitureCollection(bpy.types.Operator):
         return {'FINISHED'}
 
 # Operator classes
-class ESEC_OT_function_1(bpy.types.Operator):
-    bl_idname = "esec.function_1"
-    bl_label = "Step 1 - Prepare DXF"
-    bl_description = "Prepares the DXF. Move all objects to the 'dxf' collection, delete unwanted objects and rename the objects."
 
-    @classmethod
-    def poll(cls, context):
-        # This operator is available only if the 'dxf' collection exists
-        return 'dxf' in bpy.data.collections
 
-    def execute(self, context):
-        #function_1(self, context)
-        print("Step 1 - prepare DXF")
-        move_to_closets_collection()
-        convert_splines_to_meshes_in_closets()
-        create_faces_in_closets_meshes()
-        move_objects_to_dxf()
-        move_unwanted_objects("dxf")
-        rename_objects_dxf("dxf")
-        print("Step 1 done")        
-        return {'FINISHED'}
-
-class ESEC_OT_function_2(bpy.types.Operator):
-    bl_idname = "esec.function_2"
-    bl_label = "Step 2 - Prepare IFC"
-    bl_description = "Prepares the IFC file. Move all objects to the 'ifc' collection, remove the 'IfcProject' collection and move the windows to the 'Windows' collection."
-
-    @classmethod
-    def poll(cls, context):
-        # This operator is available only if the 'IfcProject/None' collection exists
-        return 'IfcProject/None' in bpy.data.collections
-
-    def execute(self, context):
-        print("Step 2 - prepare IFC")
-        move_objects_to_ifc()
-        remove_collection("IfcProject/None")
-        move_objects_to_new_collection("IfcSlab/Floor", "ifc", "Floors")  
-        move_objects_to_new_collection("IfcDoor/Door", "ifc", "Doors")
-        move_objects_to_new_collection("IfcWindow/Window", "ifc", "Windows")  
-        print("Step 2 done")        
-        return {'FINISHED'}
-
-class ESEC_OT_function_3(bpy.types.Operator):
-    bl_idname = "esec.function_3"
-    bl_label = "Step 3 - Create tables"
-    bl_description = "Create tables from the DXF collection."
-
-    @classmethod
-    def poll(cls, context):
-        # This operator is available only if the 'dxf' collection exists
-        return 'dxf' in bpy.data.collections
-
-    def execute(self, context):
-        print("Step 3 - create tables")
-        #create_tabletops_from_dxf_collection()   
-        create_tabletops_from_dxf_collection()
-        print("Step 3 done")
-        return {'FINISHED'}
-
-class ESEC_OT_create_simple_chairs(bpy.types.Operator):
-    bl_idname = "esec.create_simple_chairs"
-    bl_label = "Step 4 - Create simple chairs"
-    bl_description = "Create simple chairs (just circles) from the DXF collection."
-
-    @classmethod
-    def poll(cls, context):
-        # This operator is available only if the 'dxf' collection exists
-        return 'dxf' in bpy.data.collections
-
-    def execute(self, context):
-        print("Step 4 - create stools")
-        create_stools_from_dxf_collection()
-        print("Step 4 done")
-        return {'FINISHED'}
-    
-class ESEC_OT_create_3d_chairs(bpy.types.Operator):
-    bl_idname = "esec.create_3d_chairs"
-    bl_label = "Step 4 - Create 3D Objects"
-    bl_description = "Create chairs, stools and sofas from the DXF collection."
-
-    @classmethod
-    def poll(cls, context):
-        # This operator is available only if the 'dxf' collection exists
-        return 'dxf' in bpy.data.collections
-
-    def execute(self, context):
-        print("Create 3D Objects")
-        create3D_Objects()
-        print("Create 3D Objects done")
-
-        return {'FINISHED'}
-
-class ESEC_OT_function_5(bpy.types.Operator):
-    bl_idname = "esec.function_5"
-    bl_label = "Step 1-5 at once"
+class ESEC_OT_process_ifc(bpy.types.Operator):
+    bl_idname = "esec.process_ifc"
+    bl_label = "Process IFC"
     bl_description = "Execute all steps at once"
 
     @classmethod
     def poll(cls, context):
-        # This operator is available only if the 'dxf' collection exists
-        # and there is any collection with 'ifc' in its name.
-        return 'dxf' in bpy.data.collections and any('ifc' in coll.name.lower() for coll in bpy.data.collections)
- 
+        return any(
+            coll.name.startswith("IfcProject/") or coll.name == "ifc"
+            for coll in bpy.data.collections
+        )
 
-    def execute(self, context):
-        print("Rock'n'Roll")  
+    def _build_steps(self, context):
+        steps = []
+        prefs = _get_prefs()
+        if prefs and prefs.repair_missing_walls:
+            steps.append(("Repairing walls...", lambda: bpy.ops.esec.repair_missing_walls()))
+        steps.append(("Moving objects to IFC...", move_objects_to_ifc))
+        steps.append(("Sorting IFC types...", self._sort_ifc_types))
+        steps.append(("Renaming spaces...", rename_spaces_with_long_name))
+        steps.append(("Splitting Floors / Ceiling...", lambda: move_slabs_separate_ceiling("ifc", "Floors", "Ceiling")))
+        steps.append(("Renaming floors...", rename_floors_with_space_type))
+        steps.append(("Hiding Space & Ceiling...", self._hide_collections))        
+        steps.append(("Organizing collections...", organize_collections))
+        steps.append(("Cleanup...", remove_ifc_project_collection))
+        steps.append(("Renaming furnish from assets...", esec_archiologic_importer.rename_furnish_from_assets))
+        steps.append(("Assigning materials...", assign_collection_materials))
+        return steps
 
-        move_to_closets_collection()
-        convert_splines_to_meshes_in_closets()
-        create_faces_in_closets_meshes()
-        move_objects_to_dxf()
-        move_unwanted_objects("dxf")
-        rename_objects_dxf("dxf")
-        rename_parking_floors()
-        move_objects_to_ifc()
-        remove_collection("IfcProject/None")
-        move_objects_to_new_collection("IfcSlab/Floor", "ifc", "Floors")  
-        move_objects_to_new_collection("IfcDoor/Door", "ifc", "Doors")
-        move_objects_to_new_collection("IfcWindow/Window", "ifc", "Windows")
-        move_objects_to_new_collection("IfcSlab/Parking", "ifc", "Parking")                
-        create_tabletops_from_dxf_collection()
-        create3D_Objects()
-        # create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
-        # create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height) 
-        # create_squares_from_dxf_collection('Genericsideboard', bpy.context.scene.esec_addon_props.sideboard_height) 
-        assign_collection_materials()
-        organize_collections() 
-        print("all done")        
+    def invoke(self, context, _event):
+        print("Beginn IFC processing")
+        self._steps = self._build_steps(context)
+        self._step = 0
+        context.window_manager.progress_begin(0, len(self._steps))
+        self._timer = context.window_manager.event_timer_add(0.01, window=context.window)
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        if event.type != 'TIMER':
+            return {'PASS_THROUGH'}
+
+        if self._step < len(self._steps):
+            label, fn = self._steps[self._step]
+            text = f"Step 1-5  [{self._step + 1}/{len(self._steps)}]  {label}"
+            if _debug_mode():
+                print(f"[process_ifc] {text}")
+            context.workspace.status_text_set(text)
+            context.window_manager.progress_update(self._step)
+            try:
+                fn()
+            except Exception as e:
+                print(f"[process_ifc] ERROR in '{label}': {e}")
+                self._finish(context)
+                self.report({'ERROR'}, str(e))
+                return {'CANCELLED'}
+            self._step += 1
+            return {'RUNNING_MODAL'}
+
+        self._finish(context)
+        print("all done")
+        self.report({'INFO'}, "IFC processing complete.")
         return {'FINISHED'}
 
-class ESEC_OT_close_holes_prepare(bpy.types.Operator):
-    bl_idname = "esec.close_holes_prepare"
-    bl_label = "Prepare"
-    bl_description = "Creates an intersection of the floors and the walls. You have to move the Floors_Intersect object exactly on top of Floors_combined."
+    def _finish(self, context):
+        context.window_manager.event_timer_remove(self._timer)
+        context.window_manager.progress_end()
+        context.workspace.status_text_set(None)
 
-    @classmethod
-    def poll(cls, context):
-        # This operator is available only if the 'dxf' collection exists
-        return 'Floors' in bpy.data.collections
+    def _sort_ifc_types(self):
+        move_objects_to_new_collection("IfcColumn/", "ifc", "Column")
+        move_objects_to_new_collection("IfcElementAssembly/", "ifc", "IfcElementAssembly")
+        move_objects_to_new_collection("IfcStairFlight/", "ifc", "Stair")
+        move_objects_to_new_collection("IfcWall/", "ifc", "Walls")
+        move_objects_to_new_collection("IfcWallStandardCase/", "ifc", "Walls")
+        move_objects_to_new_collection("IfcDoor/", "ifc", "Doors")
+        move_objects_to_new_collection("IfcWindow/", "ifc", "Windows")
+        move_objects_to_new_collection("IfcFurnishingElement/", "ifc", "Furnish")
+        move_objects_to_new_collection("IfcSpace/", "ifc", "Space")
+        move_objects_to_new_collection("IfcStair/", "ifc", "Stair")
+        move_objects_to_new_collection("IfcRailing/", "ifc", "Railing")
+        move_objects_to_new_collection("IfcSpace/", "IfcSpace", "Spaces")
 
-    def execute(self, context):
-        print("Prepare closing holes")
-        close_holes_process_floors()
-        close_holes_extrude_top_face()
-        close_holes_apply_boolean_difference()
-        close_holes_deactivate_rendering()
-        print("done prepare closing holes")
-        return {'FINISHED'}
-
-class ESEC_OT_close_holes_finish(bpy.types.Operator):
-    bl_idname = "esec.close_holes_finish"
-    bl_label = "Finish"
-    bl_description = "Move the Floors_Intersect object exactly on top of Floors_combined before clicking this button! "
-
-    @classmethod
-    def poll(cls, context):
-        return 'floors_intersect' in bpy.data.collections
-
-    def execute(self, context):
-        print("Finish closing holes")
-        close_holes_finish()   
-        print("done closing holes")
-        return {'FINISHED'}
-
-
-class IMPORT_OT_dxf(bpy.types.Operator):
-    bl_idname = "import_scene.dxf_esec"
-    bl_label = "DXF"
-    bl_description = "Import the DXF file exported from Archiologic. Official Blender DXF importer addon required."
-
-    @classmethod
-    def poll(cls, context):        
-        try:
-            return bpy.ops.import_scene.dxf.poll() is not None
-        except AttributeError:
-            return False
-
-    def execute(self, context):
-        global last_imported_dxf_directory, last_imported_dxf_filename
-        bpy.ops.import_scene.dxf('INVOKE_DEFAULT')
-
-        if 'dxf' not in bpy.data.collections:
-            dxf_collection = bpy.data.collections.new('dxf')
-            bpy.context.scene.collection.children.link(dxf_collection)
-
-        return {'FINISHED'}
-
-class IMPORT_OT_ifc(bpy.types.Operator):
-    bl_idname = "import_ifc.bim_esec"
-    bl_label = "IFC"
-    bl_description = "Import the IFC file exported from Archiologic. Blenderbim Addon required. Download from https://blenderbim.org/download.html."
+    def _hide_collections(self):
+        space = bpy.data.collections.get('Space')
+        if space:
+            space.hide_viewport = True
+            print("Collection 'Space' is now hidden.")
+        ceiling = bpy.data.collections.get('Ceiling')
+        if ceiling:
+            ceiling.hide_viewport = True
+            print("Collection 'Ceiling' is now hidden.")
     
+
+
+
+class ESEC_OT_ImportIfc(bpy.types.Operator):
+    bl_idname = "esec.import_ifc_manual"
+    bl_label = "IFC"
+    bl_description = "Import the IFC file exported from Archiologic. Bonsai Addon required. Download from https://github.com/IfcOpenShell/IfcOpenShell/releases."
+
     @classmethod
-    def poll(cls, context):        
+    def poll(cls, context):
         try:
-            return bpy.ops.import_ifc.bim.poll() is not None
+            return bpy.ops.bim.load_project.poll() is not None
         except AttributeError:
-            return False
+            try:
+                return bpy.ops.import_ifc.bim.poll() is not None
+            except AttributeError:
+                return False
 
     def execute(self, context):
-        bpy.ops.import_ifc.bim('INVOKE_DEFAULT')
+        try:
+            bpy.ops.bim.load_project('INVOKE_DEFAULT')
+        except AttributeError:
+            bpy.ops.import_ifc.bim('INVOKE_DEFAULT')
         return {'FINISHED'}
 
-class EsecSaveAsOperator(bpy.types.Operator):
-    bl_idname = "wm.save_as_esec"
+class ESEC_OT_SaveAs(bpy.types.Operator):
+    bl_idname = "esec.save_as"
     bl_label = "Blender"
     bl_description = "Save the current file with a new name"
 
@@ -412,8 +309,8 @@ class EsecSaveAsOperator(bpy.types.Operator):
         bpy.ops.wm.save_as_mainfile('INVOKE_DEFAULT')
         return {'FINISHED'}
 
-class EsecExportObjOperator(bpy.types.Operator):
-    bl_idname = "wm.export_obj_esec"
+class ESEC_OT_ExportObj(bpy.types.Operator):
+    bl_idname = "esec.export_obj"
     bl_label = "OBJ"
     bl_description = "Export the current scene as an OBJ file"
 
@@ -421,8 +318,8 @@ class EsecExportObjOperator(bpy.types.Operator):
         bpy.ops.wm.obj_export('INVOKE_DEFAULT')
         return {'FINISHED'}
 
-class EsecExportKeyShotOperator(bpy.types.Operator):
-    bl_idname = "esec.export_keyshot_esec"
+class ESEC_OT_ExportKeyShot(bpy.types.Operator):
+    bl_idname = "esec.export_keyshot"
     bl_label = "send to Keyshot"
     bl_description = "Export the current scene to Keyshot. Keyshot Plugin required. (https://www.keyshot.com/resources/downloads/plugins)"    
 
@@ -435,30 +332,280 @@ class EsecExportKeyShotOperator(bpy.types.Operator):
             return False
 
     def execute(self, context):
-        bpy.ops.keyshot.send_to_keyshot()
+        # The KeyShot plugin iterates over collections and calls
+        # bpy.ops.object.mode_set(mode="OBJECT") for each one. That operator's
+        # poll() requires context.active_object to be set — even during nested calls.
+        # Setting active_object once before the call isn't enough because KeyShot
+        # clears selection during its traversal.
+        #
+        # Fix: use context.temp_override() which propagates a stable active_object
+        # into ALL nested operator calls made by the KeyShot plugin.
+
+        # Find any non-hidden mesh in the current view layer to use as the anchor
+        anchor = next(
+            (o for o in context.view_layer.objects
+             if o.type == 'MESH' and not o.hide_viewport and not o.hide_get()),
+            None
+        )
+        if anchor is None:
+            self.report({'ERROR'}, "No visible mesh found — select any object before exporting to KeyShot.")
+            return {'CANCELLED'}
+
+        # Ensure Object mode on the anchor before overriding
+        prev_active = context.view_layer.objects.active
+        context.view_layer.objects.active = anchor
+        if anchor.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        try:
+            with context.temp_override(
+                active_object=anchor,
+                object=anchor,
+                selected_objects=[anchor],
+                selected_editable_objects=[anchor],
+            ):
+                bpy.ops.keyshot.send_to_keyshot()
+        except RuntimeError as e:
+            self.report({'ERROR'}, f"KeyShot export failed: {e}")
+            return {'CANCELLED'}
+        finally:
+            context.view_layer.objects.active = prev_active
+
         return {'FINISHED'}
 
-class EsecSubmenu(bpy.types.Menu):
+class ESEC_OT_repair_missing_walls(bpy.types.Operator):
+    bl_idname = "esec.repair_missing_walls"
+    bl_label = "Repair Missing Walls"
+    bl_description = (
+        "Select all IFC objects with a Curve2D representation and switch them to their "
+        "Body (3D) representation. Requires Bonsai > 0.8.5-alpha2604081058"
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            hasattr(bpy.ops.bim, 'select_by_representation_type') and
+            hasattr(bpy.ops.bim, 'switch_representation')
+        )
+
+    def execute(self, context):
+        if not hasattr(bpy.ops.bim, 'select_by_representation_type'):
+            msg = "bpy.ops.bim.select_by_representation_type not available. Requires Bonsai > 0.8.5-alpha2604081058"
+            self.report({'ERROR'}, msg); print(f"[repair_walls] ERROR: {msg}")
+            return {'CANCELLED'}
+
+        # Step 1: select all objects currently displaying a Curve2D representation
+        print("[repair_walls] Calling select_by_representation_type(Curve2D)...")
+        bpy.ops.bim.select_by_representation_type(representation_type="Curve2D")
+
+        selected = list(bpy.context.selected_objects)
+        print(f"[repair_walls] Objects selected: {len(selected)}")
+        if not selected:
+            msg = "No objects with Curve2D representation found."
+            self.report({'INFO'}, msg); print(f"[repair_walls] {msg}")
+            return {'FINISHED'}
+
+        # Step 2: resolve Bonsai modules via sys.modules
+        import sys
+        import types
+
+        _ifc_mod = None
+        for key, mod in sys.modules.items():
+            if isinstance(mod, types.ModuleType) and key.endswith('.bim.ifc') and hasattr(mod, 'IfcStore'):
+                _ifc_mod = mod
+                break
+
+        # *.tool  — implementation module with Ifc + Geometry tool classes
+        _tool_impl = None
+        for key, mod in sys.modules.items():
+            if (isinstance(mod, types.ModuleType)
+                    and not key.endswith('.core.tool')
+                    and key.endswith('.tool')
+                    and hasattr(mod, 'Ifc')
+                    and hasattr(mod, 'Geometry')):
+                _tool_impl = mod
+                break
+
+        # *.core.geometry — has switch_representation()
+        _core_geo = None
+        for key, mod in sys.modules.items():
+            if (isinstance(mod, types.ModuleType)
+                    and key.endswith('.core.geometry')
+                    and hasattr(mod, 'switch_representation')):
+                _core_geo = mod
+                break
+
+        if not _ifc_mod:
+            msg = "*.bim.ifc (IfcStore) not found. Is Bonsai active?"
+            self.report({'ERROR'}, msg); print(f"[repair_walls] ERROR: {msg}")
+            return {'CANCELLED'}
+
+        IfcStore = _ifc_mod.IfcStore
+        ifc_file = IfcStore.get_file()
+        if not ifc_file:
+            msg = "No IFC file loaded."
+            self.report({'ERROR'}, msg); print(f"[repair_walls] ERROR: {msg}")
+            return {'CANCELLED'}
+
+        # Decide whether to use the fast direct core path or fall back to the operator
+        use_core = (_tool_impl is not None and _core_geo is not None)
+        print(f"[repair_walls] fast path (core.geometry): {use_core}")
+
+        # Step 3: switch each object from Curve2D to its Body representation
+        switched = 0
+        for obj in selected:
+            bim_props = getattr(obj, 'BIMObjectProperties', None)
+            ifc_id = getattr(bim_props, 'ifc_definition_id', 0)
+            element = ifc_file.by_id(ifc_id) if ifc_id else None
+            if not element:
+                print(f"[repair_walls] {obj.name}: no IFC entity, skipping.")
+                continue
+
+            body_rep = None
+            if element.Representation:
+                for rep in element.Representation.Representations:
+                    if getattr(rep, 'RepresentationIdentifier', '') == "Body":
+                        body_rep = rep
+                        break
+                if not body_rep:
+                    for rep in element.Representation.Representations:
+                        rtype = getattr(rep, 'RepresentationType', '')
+                        if rtype not in ("Curve2D", "Curve3D", "GeometricCurveSet", "Annotation2D"):
+                            body_rep = rep
+                            break
+            if not body_rep:
+                print(f"[repair_walls] {obj.name}: no usable 3D representation, skipping.")
+                continue
+
+            if use_core:
+                # Fast path: call core function directly — no undo push, no operator overhead
+                try:
+                    _core_geo.switch_representation(
+                        _tool_impl.Ifc,
+                        _tool_impl.Geometry,
+                        obj=obj,
+                        representation=body_rep,
+                        apply_openings=True,
+                    )
+                    switched += 1
+                    continue
+                except Exception as e:
+                    print(f"[repair_walls] core path failed for {obj.name}: {e}, falling back to operator")
+
+            # Fallback: operator (slow but always available)
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.bim.switch_representation(
+                ifc_definition_id=body_rep.id(),
+                disable_opening_subtractions=False,
+            )
+            switched += 1
+
+        msg = f"Repaired {switched} of {len(selected)} wall(s)."
+        self.report({'INFO'}, msg); print(f"[repair_walls] {msg}")
+        return {'FINISHED'}
+
+
+class ESEC_MT_Tools(bpy.types.Menu):
     bl_label = "Tools"
-    bl_idname = "OBJECT_MT_esec_submenu"
+    bl_idname = "ESEC_MT_tools"
 
     def draw(self, context):
         layout = self.layout
-        layout.operator(OBJECT_OT_DeleteIfcCollection.bl_idname, icon="CANCEL")
-        layout.operator(OBJECT_OT_DeleteDxfCollection.bl_idname, icon="CANCEL")
-        layout.operator(OBJECT_OT_DeleteFurnitureCollection.bl_idname, icon="CANCEL")
-        layout.operator("esec.create_simple_chairs", icon="OUTLINER_OB_POINTCLOUD")
-        layout.operator("esec.organize_collections", icon="GRAPH")        
-        layout.operator("esec.select_parking", icon="LATTICE_DATA")
+        layout.operator(ESEC_OT_DeleteIfcCollection.bl_idname, icon="CANCEL")
+        layout.operator(ESEC_OT_DeleteFurnitureCollection.bl_idname, icon="CANCEL")
+        #layout.operator("esec.organize_collections", icon="GRAPH")
+        layout.separator()
         layout.operator("esec.prep_parking", icon="REMOVE")
+        #layout.separator()
+        #layout.operator("esec.repair_missing_walls", icon="MOD_BUILD")
 
-class ESEC_OT_select_parking(bpy.types.Operator):
-    bl_idname = "esec.select_parking"
-    bl_label = "Select Parking"
-    bl_description = "Select all Parking lots"
+        # Dynamic "Select all - <type> (N)" entries built from renamed objects in scene
+        from collections import Counter
+        suffix_counts = Counter(
+            obj.name.rsplit(" - ", 1)[1]
+            for obj in bpy.data.objects
+            if obj.name.startswith("IfcSlab/") and " - " in obj.name
+        )
+        if suffix_counts:
+            layout.separator()
+            layout.label(text="Select by space type:")
+            for suffix in sorted(suffix_counts):
+                count = suffix_counts[suffix]
+                op = layout.operator("esec.select_by_suffix", text=f"Select all  {suffix}  ({count})", icon="LATTICE_DATA")
+                op.suffix = suffix
+
+        layout.separator()
+        layout.operator("esec.create_material_by_selection", icon="COLLECTION_NEW")
+
+class ESEC_OT_create_material_by_selection(bpy.types.Operator):
+    bl_idname = "esec.create_material_by_selection"
+    bl_label = "Create Material by Selection"
+    bl_description = "Move selected floor slabs into Structure/Floors_<type> sub-collections"
+
+    @classmethod
+    def poll(cls, context):
+        return any(
+            obj.name.startswith("IfcSlab/") and " - " in obj.name
+            for obj in context.selected_objects
+        )
 
     def execute(self, context):
-        select_objects_from_collection("Parking", "Structure")  
+        # Find the Structure collection (parent of Floors)
+        structure_coll = bpy.data.collections.get("Structure")
+
+        selected_slabs = [
+            obj for obj in context.selected_objects
+            if obj.name.startswith("IfcSlab/") and " - " in obj.name
+        ]
+
+        moved_by_type = {}
+        for obj in selected_slabs:
+            suffix = obj.name.rsplit(" - ", 1)[1]
+            target_name = f"Floors_{suffix}"
+
+            # Get or create the Floors_<type> collection
+            target_coll = bpy.data.collections.get(target_name)
+            if not target_coll:
+                target_coll = bpy.data.collections.new(target_name)
+                # Place it as sibling of Floors under Structure; fall back to scene root
+                parent = structure_coll or bpy.context.scene.collection
+                parent.children.link(target_coll)
+                print(f"[mat_by_sel] Created collection '{target_name}' under '{parent.name}'")
+
+            # Unlink from all current collections, link to target
+            for src in list(obj.users_collection):
+                try:
+                    src.objects.unlink(obj)
+                except Exception:
+                    pass
+            target_coll.objects.link(obj)
+            moved_by_type.setdefault(suffix, 0)
+            moved_by_type[suffix] += 1
+
+        summary = ", ".join(f"{v}x {k}" for k, v in sorted(moved_by_type.items()))
+        print(f"[mat_by_sel] Done: {summary}")
+
+        assign_collection_materials()
+
+        self.report({'INFO'}, f"Moved: {summary} - materials reassigned")
+        return {'FINISHED'}
+
+class ESEC_OT_select_by_suffix(bpy.types.Operator):
+    bl_idname = "esec.select_by_suffix"
+    bl_label = "Select by Space Type"
+    bl_description = "Select all objects whose name ends with this space type suffix"
+
+    suffix: bpy.props.StringProperty()
+
+    def execute(self, context):
+        bpy.ops.object.select_all(action='DESELECT')
+        count = 0
+        for obj in bpy.data.objects:
+            if obj.name.startswith("IfcSlab/") and obj.name.endswith(f" - {self.suffix}"):
+                obj.select_set(True)
+                count += 1
+        self.report({'INFO'}, f"Selected {count} slab(s): '{self.suffix}'")
+
         return {'FINISHED'}
     
 class ESEC_OT_prep_parking(bpy.types.Operator):
@@ -476,41 +623,10 @@ class ESEC_OT_organize_collections(bpy.types.Operator):
     bl_description = "Organize Collections"
 
     def execute(self, context):
-        organize_collections()    
+        organize_collections()
         return {'FINISHED'}
 
 
-class ESEC_OT_create_storage(bpy.types.Operator):
-    bl_idname = "esec.create_storage"
-    bl_label = "Step 5 - Create Storage"
-    bl_description = "Create storage from the DXF collection."
-
-    @classmethod
-    def poll(cls, context):
-        # This operator is available only if the 'dxf' collection exists
-        return 'dxf' in bpy.data.collections
-
-    def execute(self, context):
-        print("Create Storage")
-        create_squares_from_dxf_collection('Storage', bpy.context.scene.esec_addon_props.storage_height)    
-        print("Create Storage done")
-        return {'FINISHED'}
-
-class ESEC_OT_create_sideboard(bpy.types.Operator):
-    bl_idname = "esec.create_sideboard"
-    bl_label = "Step 6 - Create Sideboard"
-    bl_description = "Create sideboard from the DXF collection."
-
-    @classmethod
-    def poll(cls, context):
-        # This operator is available only if the 'dxf' collection exists
-        return 'dxf' in bpy.data.collections
-
-    def execute(self, context):
-        print("Create sideboards")
-        create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height)    
-        print("Create sideboards done")
-        return {'FINISHED'}
 
 
 class ESEC_OT_assign_materials(bpy.types.Operator):
@@ -524,55 +640,96 @@ class ESEC_OT_assign_materials(bpy.types.Operator):
 
 class ESEC_OT_setup_renderer(bpy.types.Operator):
     bl_idname = "esec.setup_renderer"
-    bl_label = "Setup"
-    bl_description = "Setup the GPU cycles renderer. Create a hdri enviroment, set a transparent background and create a camera."
+    bl_label = "Setup Render (KeyShot style)"
+    bl_description = (
+        "Configure Cycles to match KeyShot output: "
+        "3840x2004 PNG+alpha, 512 samples, Gaussian filter 1.5, "
+        "50 mm top-down camera, startup.hdr environment."
+    )
 
     def execute(self, context):
-        setup_render()
-        setup_hdri()
-        set_transparent_background()
-        setup_camera()
+        setup_render()     # engine, resolution, samples, filter, format, transparent bg
+        setup_hdri()       # startup.hdr world environment
+        setup_camera()     # 50 mm top-down camera, azimuth -90°
+        self.report({'INFO'}, "Render setup complete: 3840x2004, 512 samples, 50 mm top-down camera")
         return {'FINISHED'}
 
 class ESEC_OT_render(bpy.types.Operator):
     bl_idname = "esec.render"
     bl_label = "Render"
-    bl_description = "Renders the scene with the current settings. Dont forget to create the render enviroment first."
+    bl_description = "Render the scene at 3840x2004 and save as PNG with alpha."
 
     def execute(self, context):
-        render_scene(3400, 1923)
+        render_scene(3840, 2004)
+        return {'FINISHED'}
+
+
+class ESEC_OT_open_render_folder(bpy.types.Operator):
+    """Open the folder containing the last rendered image in the OS file explorer."""
+    bl_idname = "esec.open_render_folder"
+    bl_label = "Open Render Folder"
+    bl_description = "Open the folder containing the last rendered image"
+
+    def execute(self, context):
+        import subprocess, sys
+        path = _last_render_path
+        if not path:
+            self.report({'WARNING'}, "No render path recorded yet.")
+            return {'CANCELLED'}
+        folder = os.path.dirname(path)
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", folder])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", folder])
+        else:
+            subprocess.Popen(["xdg-open", folder])
+        return {'FINISHED'}
+
+
+class ESEC_OT_open_render_image(bpy.types.Operator):
+    """Open the last rendered image with the OS default image viewer."""
+    bl_idname = "esec.open_render_image"
+    bl_label = "Open Render Image"
+    bl_description = "Open the last rendered image in the default viewer"
+
+    def execute(self, context):
+        import subprocess, sys
+        path = _last_render_path
+        if not path or not os.path.isfile(path):
+            self.report({'WARNING'}, "Rendered file not found.")
+            return {'CANCELLED'}
+        if sys.platform == "win32":
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
         return {'FINISHED'}
 
 addon_keymaps = []
+_last_render_path = None  # set by render_scene() after a successful render
 
 def register():  # sourcery skip: extract-method
     #bpy.utils.register_class(MyPanel)         
-    bpy.utils.register_class(ESEC_OT_function_1)
-    bpy.utils.register_class(ESEC_OT_function_2)
-    bpy.utils.register_class(ESEC_OT_function_3)
-    bpy.utils.register_class(ESEC_OT_create_simple_chairs)
-    bpy.utils.register_class(ESEC_OT_create_3d_chairs)
-    bpy.utils.register_class(ESEC_OT_function_5)
+    bpy.utils.register_class(ESEC_OT_process_ifc)
     bpy.utils.register_class(ESEC_PT_panel)
-    bpy.utils.register_class(EsecSubmenu)
-    bpy.utils.register_class(IMPORT_OT_dxf)
-    bpy.utils.register_class(IMPORT_OT_ifc)
-    bpy.utils.register_class(EsecExportObjOperator)
-    bpy.utils.register_class(EsecSaveAsOperator)
-    bpy.utils.register_class(OBJECT_OT_DeleteIfcCollection)
-    bpy.utils.register_class(OBJECT_OT_DeleteDxfCollection)
-    bpy.utils.register_class(OBJECT_OT_DeleteFurnitureCollection)
-    bpy.utils.register_class(ESEC_OT_create_storage)
-    bpy.utils.register_class(ESEC_OT_create_sideboard)
+    bpy.utils.register_class(ESEC_MT_Tools)
+    bpy.utils.register_class(ESEC_OT_ImportIfc)
+    bpy.utils.register_class(ESEC_OT_ExportObj)
+    bpy.utils.register_class(ESEC_OT_SaveAs)
+    bpy.utils.register_class(ESEC_OT_DeleteIfcCollection)
+    bpy.utils.register_class(ESEC_OT_DeleteFurnitureCollection)
     bpy.utils.register_class(ESEC_OT_assign_materials)
     bpy.utils.register_class(ESEC_OT_setup_renderer)
     bpy.utils.register_class(ESEC_OT_render)
-    bpy.utils.register_class(EsecExportKeyShotOperator)
+    bpy.utils.register_class(ESEC_OT_open_render_folder)
+    bpy.utils.register_class(ESEC_OT_open_render_image)
+    bpy.utils.register_class(ESEC_OT_ExportKeyShot)
     bpy.utils.register_class(ESEC_OT_organize_collections)
-    bpy.utils.register_class(ESEC_OT_close_holes_prepare)
-    bpy.utils.register_class(ESEC_OT_close_holes_finish)
-    bpy.utils.register_class(ESEC_OT_select_parking)
+    bpy.utils.register_class(ESEC_OT_create_material_by_selection)
+    bpy.utils.register_class(ESEC_OT_select_by_suffix)
     bpy.utils.register_class(ESEC_OT_prep_parking)
+    bpy.utils.register_class(ESEC_OT_repair_missing_walls)
     bpy.utils.register_class(ESEC_OT_OpenAddonPreferences_DXF)
     bpy.utils.register_class(ESEC_OT_OpenAddonPreferences_BIM)
 
@@ -580,44 +737,31 @@ def register():  # sourcery skip: extract-method
     wm = bpy.context.window_manager
     if kc := wm.keyconfigs.addon:
         km = kc.keymaps.new(name='3D View', space_type='VIEW_3D')
-        kmi = km.keymap_items.new(ESEC_OT_function_1.bl_idname, type='A', value='PRESS', alt=True, shift=True)
-        kmi = km.keymap_items.new(ESEC_OT_function_2.bl_idname, type='B', value='PRESS', alt=True, shift=True)
-        kmi = km.keymap_items.new(ESEC_OT_function_3.bl_idname, type='C', value='PRESS', alt=True, shift=True)
-        kmi = km.keymap_items.new(ESEC_OT_create_simple_chairs.bl_idname, type='D', value='PRESS', alt=True, shift=True)
-        kmi = km.keymap_items.new(ESEC_OT_function_5.bl_idname, type='E', value='PRESS', alt=True, shift=True)
-        kmi = km.keymap_items.new(IMPORT_OT_dxf.bl_idname, 'D', 'PRESS', alt=True, shift=True)
-        kmi = km.keymap_items.new(IMPORT_OT_ifc.bl_idname, 'I', 'PRESS', alt=True, shift=True)
+        kmi = km.keymap_items.new(ESEC_OT_ImportIfc.bl_idname, 'I', 'PRESS', alt=True, shift=True)
         addon_keymaps.append((km, kmi))    
     
 
 def unregister():
-    bpy.utils.unregister_class(ESEC_OT_function_1)
-    bpy.utils.unregister_class(ESEC_OT_function_2)
-    bpy.utils.unregister_class(ESEC_OT_function_3)
-    bpy.utils.unregister_class(ESEC_OT_create_simple_chairs)
-    bpy.utils.unregister_class(ESEC_OT_create_3d_chairs)
-    bpy.utils.unregister_class(ESEC_OT_function_5)
-    bpy.utils.unregister_class(IMPORT_OT_dxf)
-    bpy.utils.unregister_class(IMPORT_OT_ifc)
-    bpy.utils.unregister_class(EsecSaveAsOperator)
-    bpy.utils.unregister_class(EsecExportObjOperator)
+    bpy.utils.unregister_class(ESEC_OT_process_ifc)
+    bpy.utils.unregister_class(ESEC_OT_ImportIfc)
+    bpy.utils.unregister_class(ESEC_OT_SaveAs)
+    bpy.utils.unregister_class(ESEC_OT_ExportObj)
     bpy.utils.unregister_class(ESEC_PT_panel)
-    bpy.utils.unregister_class(EsecSubmenu)
-    bpy.utils.unregister_class(OBJECT_OT_DeleteIfcCollection)
-    bpy.utils.unregister_class(OBJECT_OT_DeleteDxfCollection)
-    bpy.utils.unregister_class(OBJECT_OT_DeleteFurnitureCollection)
-    bpy.utils.unregister_class(ESEC_OT_create_storage)
-    bpy.utils.unregister_class(ESEC_OT_create_sideboard)
+    bpy.utils.unregister_class(ESEC_MT_Tools)
+    bpy.utils.unregister_class(ESEC_OT_DeleteIfcCollection)
+    bpy.utils.unregister_class(ESEC_OT_DeleteFurnitureCollection)
     bpy.utils.unregister_class(ESEC_OT_assign_materials)
     bpy.utils.unregister_class(ESEC_OT_setup_renderer)
     bpy.utils.unregister_class(ESEC_OT_render)
-    bpy.utils.unregister_class(EsecExportKeyShotOperator)
+    bpy.utils.unregister_class(ESEC_OT_open_render_folder)
+    bpy.utils.unregister_class(ESEC_OT_open_render_image)
+    bpy.utils.unregister_class(ESEC_OT_ExportKeyShot)
     bpy.utils.unregister_class(ESEC_OT_organize_collections)
-    bpy.utils.unregister_class(ESEC_OT_close_holes_prepare)
-    bpy.utils.unregister_class(ESEC_OT_close_holes_finish)
-    bpy.utils.unregister_class(ESEC_OT_select_parking)
-    bpy.utils.unregister_class(ESEC_OT_prep_parking) 
-    bpy.utils.unregister_class(ESEC_OT_OpenAddonPreferences_DXF) 
+    bpy.utils.unregister_class(ESEC_OT_create_material_by_selection)
+    bpy.utils.unregister_class(ESEC_OT_select_by_suffix)
+    bpy.utils.unregister_class(ESEC_OT_prep_parking)
+    bpy.utils.unregister_class(ESEC_OT_repair_missing_walls)
+    bpy.utils.unregister_class(ESEC_OT_OpenAddonPreferences_DXF)
     bpy.utils.unregister_class(ESEC_OT_OpenAddonPreferences_BIM)        
 
     for km, kmi in addon_keymaps:
@@ -626,155 +770,231 @@ def unregister():
         
 #######################################################################################
 
-def detect_shape(ob):
-    # Get the curve data from the object
-    curve = ob.data
-    
-    # Count the number of points in the first spline of the curve
-    num_points = len(curve.splines[0].bezier_points) if curve.splines[0].type == 'BEZIER' else len(curve.splines[0].points)
-    
-    # Basic shape detection based on point count
-    if num_points < 11:
-        return 'square', num_points
-    elif num_points > 10:
-        # Further refine the detection to check if it's a circle
-        # Calculate the distance from each point to the object's center
-        # If the distances are approximately equal, it's a circle
-        center = ob.location
-        if curve.splines[0].type == 'BEZIER':
-            distances = [((p.co.x - center.x)**2 + (p.co.y - center.y)**2)**0.5 for p in curve.splines[0].bezier_points]
-        else:
-            distances = [((p.co.x - center.x)**2 + (p.co.y - center.y)**2)**0.5 for p in curve.splines[0].points]
-        average_distance = sum(distances) / len(distances)
-        if all(math.isclose(d, average_distance, rel_tol=0.1) for d in distances):
-            return 'circle', num_points
-    return 'unknown', num_points
-
-def move_objects_to_dxf():
-    # Create the 'dxf' collection if it doesn't exist
-    if 'dxf' not in bpy.data.collections:
-        dxf_collection = bpy.data.collections.new('dxf')
-        bpy.context.scene.collection.children.link(dxf_collection)
-    else:
-        dxf_collection = bpy.data.collections['dxf']
-
-    root_collection = bpy.context.scene.collection
-
-    # Move all objects that are not collections from the root level to the 'dxf' collection
-    for obj in root_collection.objects:
-        if obj.type != 'EMPTY':  # Assuming collections are Empty objects with children
-            root_collection.objects.unlink(obj)
-            dxf_collection.objects.link(obj)
-            print(f"Moved '{obj.name}' to the 'dxf' collection.")
-
-
-def move_unwanted_objects(collection_name):
-    source_collection = bpy.data.collections.get(collection_name)
-    if not source_collection:
-        print(f"Collection '{collection_name}' not found.")
-        return
-
-    # Create the target collection if it doesn't exist
-    orphan_collection = bpy.data.collections.get('dxf_orphan')
-    if not orphan_collection:
-        orphan_collection = bpy.data.collections.new(name='dxf_orphan')
-        bpy.context.scene.collection.children.link(orphan_collection)
-        print("Created new collection: 'dxf_orphan'")
-
-    allowed_keywords = ['desk', 'chair', 'sofa', 'table', 'storage', 'sideboard', 
-                        'bed', 'stool', 'printer', 'bench', 'toilet', 'urinal', 'sink', 
-                        'stair', 'ottoman', 'bank', 'parking', 'locker', 'rack', 'rollingcontainer'
-                        ]
-    objects_to_move = [
-        obj
-        for obj in source_collection.objects
-        if all(keyword not in obj.name.lower() for keyword in allowed_keywords)
-    ]
-    # Move objects
-    for obj in objects_to_move:
-        # Unlink from the source collection
-        source_collection.objects.unlink(obj)
-        # Link to the target collection
-        orphan_collection.objects.link(obj)
-        print(f"Moved object: {obj.name}")
-
-    # Hide the orphan collection
-    orphan_collection.hide_viewport = True
-    print("Collection 'dxf_orphan' is now hidden.")
-
-def rename_objects_dxf(collection_name):
-    collection = bpy.data.collections.get(collection_name)
-    if not collection:
-        print(f"Collection '{collection_name}' not found.")
-        return
-
-    for obj in collection.objects:
-        new_name = obj.name.split("|")[-1].split("_")[0]
-        obj.name = new_name
-        print(f"Renamed object to: {obj.name}")
 
 def move_objects_to_ifc():
-    # Create the 'ifc' collection if it doesn't exist
-    if 'ifc' not in bpy.data.collections:
+    """Move all objects from any IfcBuildingStorey/Storey* collection(s) into a flat 'ifc' collection.
+
+    Works with both old BlenderBIM (IfcProject/None > IfcSite/None > IfcBuilding/None > ...)
+    and new Bonsai (IfcProject/Unnamed > random > IfcBuildingStorey/Storey_<guid>) hierarchies
+    by searching the entire collection tree instead of hardcoded paths.
+    """
+    # Ensure target 'ifc' collection exists
+    ifc_collection = bpy.data.collections.get('ifc')
+    if not ifc_collection:
         ifc_collection = bpy.data.collections.new('ifc')
         bpy.context.scene.collection.children.link(ifc_collection)
-    else:
-        ifc_collection = bpy.data.collections['ifc']
 
-    # Define the nested collections structure
-    nested_collections = ["IfcProject/None", "IfcSite/None", "IfcBuilding/None", "IfcBuildingStorey/Storey_0"]
+    # Find the IfcProject/... root collection anywhere in the scene tree
+    def _find_by_prefix(prefix, parent):
+        for coll in parent.children:
+            if coll.name.startswith(prefix):
+                return coll
+            found = _find_by_prefix(prefix, coll)
+            if found:
+                return found
+        return None
 
-    current_collection = bpy.context.scene.collection
-    for collection_name in nested_collections:
-        if collection_name in current_collection.children:
-            current_collection = current_collection.children[collection_name]
-        else:
-            print(f"Collection '{collection_name}' not found.")
+    proj = _find_by_prefix("IfcProject/", bpy.context.scene.collection)
+    if not proj:
+        print("[move_objects_to_ifc] No 'IfcProject/*' collection found in scene.")
+        return
+    print(f"[move_objects_to_ifc] Found project root: '{proj.name}'")
+
+    # Collect ALL IfcBuildingStorey/Storey* collections anywhere under the project root
+    storeys = []
+    def _collect_storeys(root):
+        for ch in root.children:
+            if ch.name.startswith("IfcBuildingStorey/Storey"):
+                storeys.append(ch)
+            _collect_storeys(ch)
+    _collect_storeys(proj)
+
+    if not storeys:
+        print(f"[move_objects_to_ifc] No 'IfcBuildingStorey/Storey*' collections found under '{proj.name}'.")
+        return
+    print(f"[move_objects_to_ifc] Found {len(storeys)} storey(s): {[s.name for s in storeys]}")
+
+    # Recursively move every object from storey (and sub-collections) into 'ifc'
+    def _move_recursive(src_coll):
+        for obj in list(src_coll.objects):
+            try:
+                src_coll.objects.unlink(obj)
+            except RuntimeError:
+                pass
+            if ifc_collection not in obj.users_collection:
+                ifc_collection.objects.link(obj)
+            
+            if _debug_mode():
+                print(f"  Moved '{obj.name}' → 'ifc'")
+        for child in list(src_coll.children):
+            _move_recursive(child)
+
+    for s in storeys:
+        _move_recursive(s)
+
+
+def remove_ifc_project_collection():
+    """Remove whichever IfcProject/* collection exists (name varies between Bonsai versions)."""
+    for coll in list(bpy.data.collections):
+        if coll.name.startswith("IfcProject/"):
+            bpy.data.collections.remove(coll)
+            #print(f"Removed collection: {coll.name}")
             return
+    print("No 'IfcProject/*' collection found to remove.")
 
-    # Move all objects from the nested collection to the 'ifc' collection
-    for obj in current_collection.objects:
-        current_collection.objects.unlink(obj)
-        ifc_collection.objects.link(obj)
-        print(f"Moved '{obj.name}' to the 'ifc' collection.")
 
-def remove_collection(collection_name):
-    collection = bpy.data.collections.get(collection_name)
-    if not collection:
-        print(f"Collection '{collection_name}' not found.")
+
+def rename_spaces_with_long_name():
+    """Rename all IfcSpace Blender objects by appending the IFC LongName.
+    Searches all bpy.data.objects for IfcSpace/* names — does not rely on
+    the Space collection being populated.
+    E.g. 'IfcSpace/0be1ab65-...' → 'IfcSpace/0be1ab65-... - parkingSpot'
+    """
+    import sys
+    import types
+
+    debug = _debug_mode()
+
+    # Resolve IfcStore
+    ifc_file = None
+    for key, mod in sys.modules.items():
+        if isinstance(mod, types.ModuleType) and key.endswith('.bim.ifc') and hasattr(mod, 'IfcStore'):
+            ifc_file = mod.IfcStore.get_file()
+            break
+
+    if not ifc_file:
+        print("[rename_spaces] No IFC file loaded, skipping.")
         return
 
-    bpy.data.collections.remove(collection)
-    print(f"Removed collection: {collection_name}")
+    space_objects = [obj for obj in bpy.data.objects if "IfcSpace" in obj.name]
+    print(f"[rename_spaces] IfcSpace objects found in scene: {len(space_objects)}")
+
+    renamed = 0
+    for obj in space_objects:
+        bim_props = getattr(obj, 'BIMObjectProperties', None)
+        ifc_id = getattr(bim_props, 'ifc_definition_id', 0)
+        if not ifc_id:
+            if debug:
+                print(f"[rename_spaces]  '{obj.name}': no ifc_definition_id, skipping.")
+            continue
+
+        element = ifc_file.by_id(ifc_id)
+        if not element:
+            if debug:
+                print(f"[rename_spaces]  '{obj.name}': element id={ifc_id} not found.")
+            continue
+
+        label = getattr(element, 'LongName', None) or getattr(element, 'ObjectType', None)
+        if not label:
+            if debug:
+                print(f"[rename_spaces]  '{obj.name}': no LongName or ObjectType, skipping.")
+            continue
+
+        if not obj.name.endswith(f" - {label}"):
+            old_name = obj.name
+            obj.name = f"{obj.name} - {label}"
+            if debug:
+                print(f"[rename_spaces]  '{old_name}' → '{obj.name}'")
+            renamed += 1
+
+    print(f"[rename_spaces] Renamed {renamed} of {len(space_objects)} IfcSpace object(s).")
 
 
-def move_window_objects_to_collection(collection_name, new_collection_name):
-    source_collection = bpy.data.collections.get(collection_name)
-    if not source_collection:
-        print(f"Collection '{collection_name}' not found.")
+def _mesh_centroid_xy(obj):
+    """Return (cx, cy) of object mesh vertices in world space, or None if no mesh."""
+    mesh = getattr(obj, 'data', None)
+    if not mesh or not hasattr(mesh, 'vertices') or not mesh.vertices:
+        return None
+    mat = obj.matrix_world
+    total_x = total_y = 0.0
+    count = len(mesh.vertices)
+    for v in mesh.vertices:
+        wco = mat @ v.co
+        total_x += wco.x
+        total_y += wco.y
+    return total_x / count, total_y / count
+
+
+def rename_floors_with_space_type():
+    """Rename objects in the Floors collection by matching each slab to its nearest
+    IfcSpace Blender object using the mesh vertex centroid in world space.
+    All IFC placements are at origin (0,0,0); real geometry is in mesh vertices.
+    Relies on rename_spaces_with_long_name() having run first.
+    E.g. 'IfcSlab/Floor_001' → 'IfcSlab/Floor_001 - parkingSpot'
+    """
+    debug = _debug_mode()
+
+    floors_coll = bpy.data.collections.get("Floors")
+    if not floors_coll:
+        print("[rename_floors] 'Floors' collection not found, skipping.")
         return
 
-    # Get or create the target collection
-    target_collection = bpy.data.collections.get(new_collection_name)
-    if not target_collection:
-        target_collection = bpy.data.collections.new(new_collection_name)
-        bpy.context.scene.collection.children.link(target_collection)
+    # Collect renamed IfcSpace objects with their mesh centroid XY
+    space_positions = []
+    for obj in bpy.data.objects:
+        if "IfcSpace" not in obj.name or " - " not in obj.name:
+            continue
+        label = obj.name.rsplit(" - ", 1)[1]
+        centroid = _mesh_centroid_xy(obj)
+        if centroid:
+            space_positions.append((centroid[0], centroid[1], label))
 
-    keywords = ['Window', 'window']
-    objects_to_move = [
-        obj.name
-        for obj in source_collection.objects
-        if any(keyword in obj.name for keyword in keywords)
-    ]
-    # Move objects
-    for obj_name in objects_to_move:
-        if obj := bpy.data.objects.get(obj_name):
-            source_collection.objects.unlink(obj)
-            target_collection.objects.link(obj)
-            print(f"Moved object: {obj_name} to collection: {new_collection_name}")
+    print(f"[rename_floors] Objects in 'Floors' collection: {len(floors_coll.objects)}")
+    print(f"[rename_floors] IfcSpace objects with mesh centroid: {len(space_positions)}")
+
+    if not space_positions:
+        print("[rename_floors] No space centroids found — run 'Renaming spaces' step first.")
+        return
+
+    renamed = 0
+    for obj in floors_coll.objects:
+        slab_centroid = _mesh_centroid_xy(obj)
+        if not slab_centroid:
+            continue
+        sx, sy = slab_centroid
+
+        best_label = None
+        min_dist_sq = float('inf')
+        for (px, py, label) in space_positions:
+            d = (sx - px) ** 2 + (sy - py) ** 2
+            if d < min_dist_sq:
+                min_dist_sq = d
+                best_label = label
+
+        if not best_label:
+            continue
+
+        if debug:
+            print(f"[rename_floors]  '{obj.name}' → '{best_label}' (dist={min_dist_sq**0.5:.3f}m)")
+
+        if not obj.name.endswith(f" - {best_label}"):
+            obj.name = f"{obj.name} - {best_label}"
+            renamed += 1
+
+    print(f"[rename_floors] Renamed {renamed} of {len(floors_coll.objects)} floor object(s).")
+
+
+def unhide_ifc_spaces():
+    """Unhide all IfcSpace objects that Bonsai imports hidden by default.
+    UNUSED: not called anywhere in the active pipeline. Kept as utility.
+    Original intent: Bonsai imports IfcSpace with hide_viewport=True by default.
+    Unhide them so they can be selected and interacted with.
+    The Space collection itself stays visible; individual object hide flags are cleared.
+    """
+    count = 0
+    for obj in bpy.data.objects:
+        if "IfcSpace" in obj.name and (obj.hide_viewport or obj.hide_get()):
+            obj.hide_viewport = False
+            obj.hide_set(False)
+            count += 1
+    print(f"[spaces] Unhid {count} IfcSpace object(s)")
 
 
 def move_objects_to_new_collection(keyword, collection_name, new_collection_name):
+    """Move objects whose name contains `keyword` from `collection_name` into `new_collection_name`.
+    Creates the target collection if it doesn't exist. Used in Step 2 to sort IFC types
+    (e.g. 'IfcDoor/' from 'ifc' into 'Doors').
+    """
     source_collection = bpy.data.collections.get(collection_name)
     if not source_collection:
         print(f"Collection '{collection_name}' not found.")
@@ -794,365 +1014,92 @@ def move_objects_to_new_collection(keyword, collection_name, new_collection_name
         if obj := bpy.data.objects.get(obj_name):
             source_collection.objects.unlink(obj)
             target_collection.objects.link(obj)
-            print(f"Moved object: {obj_name} to collection: {new_collection_name}") 
+            if _debug_mode():
+                print(f"Moved object: {obj_name} to collection: {new_collection_name}") 
 
 
-def remove_window_objects(collection_name):
-    collection = bpy.data.collections.get(collection_name)
-    if not collection:
-        print(f"Collection '{collection_name}' not found.")
+def move_slabs_separate_ceiling(source_collection_name="ifc", floor_collection_name="Floors", ceiling_collection_name="Ceiling"):
+    """
+    Sort IfcSlab objects in source_collection into two groups by Z-height:
+      - Lower Z cluster  → floor_collection_name   (Floors)
+      - Upper Z cluster  → ceiling_collection_name  (Ceiling)
+
+    Detection: all IfcSlab objects are grouped into Z-level clusters (world space,
+    30 cm tolerance). The topmost cluster is ceiling, everything else is floor.
+    """
+    source = bpy.data.collections.get(source_collection_name)
+    if not source:
+        print(f"[ceiling] Collection '{source_collection_name}' not found.")
         return
 
-    keywords = ['Window', 'window']
-    objects_to_remove = [
-        obj.name
-        for obj in collection.objects
-        if any(keyword in obj.name for keyword in keywords)
-    ]
-    # Remove objects
-    for obj_name in objects_to_remove:
-        if obj := bpy.data.objects.get(obj_name):
-            bpy.data.objects.remove(obj, do_unlink=True)
-            print(f"Removed object: {obj_name}")
-
-def create_tabletop_square_from_object(obj,table_type):
-    # Apply the inverse rotation to each point of the object to align it with the world axes
-    inv_rot = obj.rotation_euler.to_matrix().inverted()
-
-    local_coords = []
-    for spline in obj.data.splines:
-        if spline.type == 'BEZIER':
-            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.bezier_points)
-        elif spline.type == 'POLY':
-            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.points)
-
-    if not local_coords:
-        print(f"No points found in object {obj.name}")
+    slab_objs = [obj for obj in source.objects if "IfcSlab" in obj.name]
+    if not slab_objs:
+        print("[ceiling] No IfcSlab objects found in ifc collection.")
         return
 
-    # Calculate the bounding box dimensions in local space
-    #bbox_dimensions = Vector((max(coord[i] for coord in local_coords) - min(coord[i] for coord in local_coords) for i in range(3)))
+    # World-space Z centre of each slab's bounding box
+    def _z_center(obj):
+        corners = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
+        zs = [c.z for c in corners]
+        return (min(zs) + max(zs)) / 2.0
 
-    # Calculate the dimensions directly from the transformed vertices
-    width = max(v.x for v in local_coords) - min(v.x for v in local_coords)
-    depth = max(v.y for v in local_coords) - min(v.y for v in local_coords)
-    
-    height = bpy.context.scene.esec_addon_props.table_height
-    bpy.ops.mesh.primitive_cube_add(size=1)
-    table_top = bpy.context.active_object
-    print(f"Create Table for {obj.name}")
-    table_top.name = obj.name + "_TableTop"
+    z_by_name = {obj.name: _z_center(obj) for obj in slab_objs}
 
-    # Set the scale of the table_top based on the directly calculated dimensions
-    match table_type:
-        case "desk":
-            table_top.scale.x = width - bpy.context.scene.esec_addon_props.desk_table_margin
-            table_top.scale.y = depth - bpy.context.scene.esec_addon_props.desk_table_margin
-            table_top.scale.z = 0.025
-        case "table":
-            table_top.scale.x = width - bpy.context.scene.esec_addon_props.meeting_table_margin
-            table_top.scale.y = depth - bpy.context.scene.esec_addon_props.meeting_table_margin
-            table_top.scale.z = 0.025
-
-    table_top.location = obj.location
-    table_top.location.z = height - 0.025 / 2
-
-    # Now you can apply the original rotation of the object to the table_top
-    table_top.rotation_euler = obj.rotation_euler     
-    
-    # Ensure the 'furniture' collection exists
-    furniture_collection = bpy.data.collections.get("tables")
-    if not furniture_collection:
-        furniture_collection = bpy.data.collections.new("tables")
-        bpy.context.scene.collection.children.link(furniture_collection)
-
-    # Link the new table object to the 'furniture' collection and unlink it from the current collection
-    current_collection = table_top.users_collection[0]
-    current_collection.objects.unlink(table_top)
-    furniture_collection.objects.link(table_top)    
-
-def create_tabletop_rounds_from_object(obj):
-    # Calculate the bounding box dimensions for the object
-    bbox_corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
-    bbox_dimensions = Vector((max(corner[i] for corner in bbox_corners) - min(corner[i] for corner in bbox_corners) for i in range(3)))
-
-    width, depth, _ = bbox_dimensions
-    radius = max(width, depth) / 2  # Use the longer dimension as diameter
-    height = bpy.context.scene.esec_addon_props.table_height
-    bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=0.025)
-    table_top = bpy.context.active_object
-    table_top.name = obj.name + "_TableTop"
-
-    table_top.location = obj.location
-    table_top.location.z = height - 0.025 / 2
-
-    # Ensure the 'furniture' collection exists
-    furniture_collection = bpy.data.collections.get("tables")
-    if not furniture_collection:
-        furniture_collection = bpy.data.collections.new("tables")
-        bpy.context.scene.collection.children.link(furniture_collection)
-
-    # Link the new table object to the 'furniture' collection and unlink it from the current collection
-    current_collection = table_top.users_collection[0]
-    current_collection.objects.unlink(table_top)
-    furniture_collection.objects.link(table_top)
-
-def create_tabletops_from_dxf_collection():
-    print("create_tabletops_from_dxf_collection_2")
-    if dxf_collection := bpy.data.collections.get("dxf"):
-        for obj in dxf_collection.objects:
-            obj_name = obj.name.lower()
-
-            if "desk" in obj_name:
-                create_table(obj,"desk")
-            if "table" in obj_name:
-                create_table(obj,"table")
-            else:
-                print("no desk or table in obj.name")
-    else:
-        print("Collection 'dxf' not found.")
-
-def create_table(dxf_object,table_type):
-    if dxf_object.type == 'CURVE':
-        shape, num_points = detect_shape(dxf_object)
-        if shape == 'square':
-            #print(f"square: {obj.name} - Shape: {shape} - Points: {num_points}")
-            create_tabletop_square_from_object(dxf_object,table_type)
+    # Cluster Z values: sort, then group values within 0.3 m of each other
+    sorted_z = sorted(set(z_by_name.values()))
+    clusters = []
+    current = [sorted_z[0]]
+    for z in sorted_z[1:]:
+        if z - current[-1] <= 0.3:
+            current.append(z)
         else:
-            #print(f"circle: {obj.name} - Shape: {shape} - Points: {num_points}")    
-            create_tabletop_rounds_from_object(dxf_object)    
+            clusters.append(current)
+            current = [z]
+    clusters.append(current)
 
-def create_stool_from_object(obj, furniture_collection):
-    width, depth, _ = obj.dimensions
-    height = bpy.context.scene.esec_addon_props.chair_height
-    #height = 0.45
-    stool_scale = bpy.context.scene.esec_addon_props.stool_scale
-    bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=(width/4) * stool_scale, depth=0.05, location=(0, 0, 0))
-    stool_top = bpy.context.active_object
-    stool_top.name = obj.name + "_StoolTop"
-    stool_top.location = obj.location
-    stool_top.location.z = height - 0.05/2    
-    
-    
-    # Ensure the 'furniture' collection exists
-    furniture_collection = bpy.data.collections.get("chairs")
-    if not furniture_collection:
-        furniture_collection = bpy.data.collections.new("chairs")
-        bpy.context.scene.collection.children.link(furniture_collection)
+    # Topmost cluster → ceiling; everything below → floor
+    ceiling_z_min = min(clusters[-1])
+    if _debug_mode():
+        print(f"[ceiling] Z clusters: {[round(c[0],2) for c in clusters]}  |  ceiling threshold ≥ {ceiling_z_min:.2f} m")
 
-    # Link the new stool object to the 'furniture' collection and unlink it from the current collection
-    current_collection = stool_top.users_collection[0]
-    current_collection.objects.unlink(stool_top)
-    furniture_collection.objects.link(stool_top)    
+    floors = bpy.data.collections.get(floor_collection_name)
+    if not floors:
+        floors = bpy.data.collections.new(floor_collection_name)
+        bpy.context.scene.collection.children.link(floors)
+
+    ceiling = bpy.data.collections.get(ceiling_collection_name)
+    if not ceiling:
+        ceiling = bpy.data.collections.new(ceiling_collection_name)
+        bpy.context.scene.collection.children.link(ceiling)
+
+    moved_floor, moved_ceiling = 0, 0
+    for obj in slab_objs:
+        z = z_by_name[obj.name]
+        source.objects.unlink(obj)
+        if z >= ceiling_z_min - 0.01:
+            if not any(o is obj for o in ceiling.objects):
+                ceiling.objects.link(obj)
+            if _debug_mode():
+                print(f"  [ceiling] → Ceiling: {obj.name}  (Z={z:.2f})")
+            moved_ceiling += 1
+        else:
+            if not any(o is obj for o in floors.objects):
+                floors.objects.link(obj)
+            if _debug_mode():    
+                print(f"  [floor]   → Floors:  {obj.name}  (Z={z:.2f})")
+            moved_floor += 1
+
+    print(f"[ceiling] Done — {moved_floor} → '{floor_collection_name}', {moved_ceiling} → '{ceiling_collection_name}'")
 
 
-def create_stools_from_dxf_collection():
-    if dxf_collection := bpy.data.collections.get("dxf"):
-        # Create a new collection called "furniture" if it doesn't exist
-        furniture_collection = bpy.data.collections.get("chairs")
-        if not furniture_collection:
-            furniture_collection = bpy.data.collections.new("chairs")
-            bpy.context.scene.collection.children.link(furniture_collection)
-
-        for obj in dxf_collection.objects:
-            if "chair" in obj.name or "Chair" in obj.name:
-                create_stool_from_object(obj, furniture_collection)
-    else:
-        print("Collection 'dxf' not found.")
-
-#########################################
-
-def create_squares_from_dxf_collection(needle, scaleZ):
-    if dxf_collection := bpy.data.collections.get("dxf"):
-        for obj in dxf_collection.objects:
-            if needle in obj.name:
-                create_squares_from_dxf_object(obj, needle, scaleZ)
-    else:
-        print("Collection 'dxf' not found.")
-
-def create_squares_from_dxf_object(obj, needle, scaleZ):
-    # Apply the inverse rotation to each point of the object to align it with the world axes
-    inv_rot = obj.rotation_euler.to_matrix().inverted()
-
-    local_coords = []
-    for spline in obj.data.splines:
-        if spline.type == 'BEZIER':
-            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.bezier_points)
-        elif spline.type == 'POLY':
-            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.points)
-
-    if not local_coords:
-        print(f"No points found in object {obj.name}")
-        return
-
-    # Calculate the dimensions directly from the transformed vertices
-    width = max(v.x for v in local_coords) - min(v.x for v in local_coords)
-    depth = max(v.y for v in local_coords) - min(v.y for v in local_coords)
-    
-    height = scaleZ
-    bpy.ops.mesh.primitive_cube_add(size=1)
-    new_square = bpy.context.active_object
-    print(f"Create square for {obj.name}")
-    new_square.name = obj.name 
-
-    # Set the scale of the table_top based on the directly calculated dimensions
-    new_square.scale.x = width 
-    new_square.scale.y = depth 
-    new_square.scale.z = 0.025
-
-    new_square.location = obj.location
-    new_square.location.z = height #- 0.025 / 2
-
-    # Now you can apply the original rotation of the object to the table_top
-    new_square.rotation_euler = obj.rotation_euler     
-    
-    # Ensure the 'furniture' collection exists
-    furniture_collection = bpy.data.collections.get(needle)
-    if not furniture_collection:
-        furniture_collection = bpy.data.collections.new(needle)
-        bpy.context.scene.collection.children.link(furniture_collection)
-
-    # Link the new table object to the 'furniture' collection and unlink it from the current collection
-    current_collection = new_square.users_collection[0]
-    current_collection.objects.unlink(new_square)
-    furniture_collection.objects.link(new_square)    
-
-#################################################################################################################
-#########################################
-
-def create_full_squares_from_dxf_collection(needle, loc_z, scale_z):
-    if dxf_collection := bpy.data.collections.get("dxf"):
-        for obj in dxf_collection.objects:
-            if needle in obj.name:
-                create_full_squares_from_dxf_object(obj, needle, loc_z, scale_z)
-    else:
-        print("Collection 'dxf' not found.")
-
-def create_full_squares_from_dxf_object(obj, needle, loc_z, scale_z):
-    # Apply the inverse rotation to each point of the object to align it with the world axes
-    inv_rot = obj.rotation_euler.to_matrix().inverted()
-
-    local_coords = []
-    for spline in obj.data.splines:
-        if spline.type == 'BEZIER':
-            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.bezier_points)
-        elif spline.type == 'POLY':
-            local_coords.extend(obj.matrix_world @ (inv_rot @ Vector(point.co[:3])) for point in spline.points)
-
-    if not local_coords:
-        print(f"No points found in object {obj.name}")
-        return
-
-    # Calculate the dimensions directly from the transformed vertices
-    width = max(v.x for v in local_coords) - min(v.x for v in local_coords)
-    depth = max(v.y for v in local_coords) - min(v.y for v in local_coords)
-    
-    height = loc_z
-    bpy.ops.mesh.primitive_cube_add(size=1)
-    new_square = bpy.context.active_object
-    print(f"Create square for {obj.name}")
-    new_square.name = obj.name 
-
-    # Set the scale of the table_top based on the directly calculated dimensions
-    new_square.scale.x = width 
-    new_square.scale.y = depth 
-    new_square.scale.z = scale_z
-
-    new_square.location = obj.location
-    new_square.location.z = height #- 0.025 / 2
-
-    # Now you can apply the original rotation of the object to the table_top
-    new_square.rotation_euler = obj.rotation_euler     
-    
-    # Ensure the 'furniture' collection exists
-    furniture_collection = bpy.data.collections.get(needle)
-    if not furniture_collection:
-        furniture_collection = bpy.data.collections.new(needle)
-        bpy.context.scene.collection.children.link(furniture_collection)
-
-    # Link the new table object to the 'furniture' collection and unlink it from the current collection
-    current_collection = new_square.users_collection[0]
-    current_collection.objects.unlink(new_square)
-    furniture_collection.objects.link(new_square)    
-
-#################################################################################################################
-
-def create_3Dobject_from_dxf_collection(needles, model_name, new_collection_name, ignoreKeyword=None):
-    
-    # Convert single string needle to list for compatibility
-    if isinstance(needles, str):
-        needles = [needles]
-
-    if bpy.context.scene.use_high_poly_models:
-        strDirectory = os.path.join(os.path.dirname(__file__), config.MODELS_HIGH_DIRECTORY)        
-    else:
-        strDirectory = os.path.join(os.path.dirname(__file__), config.MODELS_LOW_DIRECTORY)        
-
-    file_loc = os.path.join(strDirectory, model_name + ".obj")
-
-    # Check if the file exists
-    if not os.path.isfile(file_loc):
-        print(f"Error: {file_loc} does not exist.")
-        print(f"strDirectory: {strDirectory} does not exist.")
-        return
-
-    #imported_object = bpy.ops.import_scene.obj(filepath=file_loc)
-    imported_object = bpy.ops.wm.obj_import(filepath=file_loc)
-    selected_obj = bpy.context.selected_objects[0]
-
-    collection_to_write = bpy.data.collections.get(new_collection_name)
-    if not collection_to_write:
-        collection_to_write = bpy.data.collections.new(new_collection_name)
-        bpy.context.scene.collection.children.link(collection_to_write)       
-
-    if dxf_collection := bpy.data.collections.get("dxf"):
-        for obj in dxf_collection.objects:
-            for needle in needles:
-                if needle.lower() in obj.name.lower():  
-                    if ignoreKeyword and ignoreKeyword.lower() in obj.name.lower():
-                        continue  # skip this object and go to the next
-                    create_3d_object_from_dxf_object(obj,selected_obj.copy(),collection_to_write)
-    else:
-        print("Collection 'dxf' not found.")
-
-    #cleanup first imported model from 0 0 0 position
-    bpy.data.objects.remove(selected_obj, do_unlink=True)
-
-def create_3d_object_from_dxf_object(dxf_obj,obj_model, collection_to_add_to):
-    print('create_chair_from_dxf_object: dxf_obj.location: ', dxf_obj.location)
-    obj_model.location = dxf_obj.location
-    obj_model.rotation_euler[2] = dxf_obj.rotation_euler[2]
-    collection_to_add_to.objects.link(obj_model)
-    
 
 ######################################################################################################
 
-def count_objects_in_collection(collection_name):
-    #count_objects_in_collection('dxf')
-    collection = bpy.data.collections.get(collection_name)
-
-    if not collection:
-        print(f"No collection named {collection_name}")
-        return
-
-    # We'll use a dictionary to count the objects
-    object_count = {}
-
-    for obj in collection.objects:
-        if match := re.match(r"([^.]*)(\.\d+)?", obj.name):
-            base_name = match[1]
-            # If this base name is not in the dictionary yet, add it with a count of 1
-            if base_name not in object_count:
-                object_count[base_name] = 1
-            # If it's already in the dictionary, increment the count
-            else:
-                object_count[base_name] += 1
-
-    for name, count in object_count.items():
-        print(f"{count}x {name}")
-
 
 def create_glass_material():
+    """Create a Principled BSDF glass material named 'Windows' with transmission=1, roughness=0.
+    Always creates a new material (does not check for existing). Called by assign_collection_materials.
+    """
     # Create a glass material
     glass_material = bpy.data.materials.new(name="Windows")
     glass_material.use_nodes = True
@@ -1181,6 +1128,10 @@ def create_glass_material():
 
 
 def create_material(material_name, base_color, specular, roughness):
+    """Create a new Principled BSDF material with the given name, RGBA base_color, and roughness.
+    Always creates a new datablock — does not reuse an existing material with the same name.
+    Use assign_collection_materials._get_or_create() when idempotency is needed.
+    """
     material = bpy.data.materials.new(name=material_name)
     material.use_nodes = True
 
@@ -1195,14 +1146,18 @@ def create_material(material_name, base_color, specular, roughness):
 
     # Set roughness
     principled_bsdf.inputs['Roughness'].default_value = roughness
-    
-    print(f"Created material: {material_name}")
+
+    if _debug_mode():
+        print(f"Created material: {material_name}")
     return material
 
 #color helper
 # credtis to https://gist.github.com/CGArtPython
 
 def hex_color_to_rgba(hex_color):
+    """Convert a 6-digit hex color string (e.g. 'E0E9F2') to a linear-RGB (R, G, B, 1.0) tuple.
+    Applies sRGB→linear conversion so colors appear correct in Cycles.
+    """
     # remove the leading '#' symbol if it is set
     if hex_color[1] == "#":
         hex_color = hex_color[1:]
@@ -1229,6 +1184,9 @@ def hex_color_to_rgba(hex_color):
 
 
 def convert_srgb_to_linear_rgb(srgb_color_component: float) -> float:
+    """Convert a single sRGB channel value [0..1] to linear RGB using the IEC 61966-2-1 formula.
+    Used by hex_color_to_rgba to produce physically-correct material colors.
+    """
     """
     Converting from sRGB to Linear RGB
     based on https://en.wikipedia.org/wiki/SRGB#From_sRGB_to_CIE_XYZ
@@ -1240,38 +1198,45 @@ def convert_srgb_to_linear_rgb(srgb_color_component: float) -> float:
     )
 
 def assign_collection_materials():
-    # Remove all materials
-    print("Remove all materials")
-    for material in bpy.data.materials:
-        bpy.data.materials.remove(material)
+    print("Remove all old materials and create a material per folder")
 
-    #custom materials
-    create_material("Floor_pale_dark_blue", hex_color_to_rgba("E0E9F2"), 0, 0.1)
-    create_material("Floor_pale_red", hex_color_to_rgba("F8E0E4"), 0, 0.1)
-    create_material("Floor_pale_orange", hex_color_to_rgba("FDEFD9"), 0, 0.1)
-    create_material("Floor_pale_light_green", hex_color_to_rgba("E0EED2"), 0, 0.1)
-    create_material("Floor_pale_light_blue", hex_color_to_rgba("E0F2F9"), 0, 0.1)
+    # All material names that are explicitly defined below — these are never deleted
+    HARDCODED_NAMES = {
+        "Floor_pale_dark_blue", "Floor_pale_red", "Floor_pale_orange",
+        "Floor_pale_light_green", "Floor_pale_light_blue", "Floors_parkingSpot",
+        "ifc", "Floor", "Doors", "Windows", "printer", "Storage", "Locker",
+        "Bathroom", "Furnish_tables",
+    }
 
-    # Create materials
+    # Remove only auto-generated materials (not the hardcoded ones)
+    for mat in list(bpy.data.materials):
+        if mat.name not in HARDCODED_NAMES:
+            bpy.data.materials.remove(mat, do_unlink=True)
+
+    def _get_or_create(name, create_fn):
+        """Return existing material if already present, otherwise create it."""
+        existing = bpy.data.materials.get(name)
+        return existing if existing else create_fn()
+
+    # Custom floor zone materials
+    _get_or_create("Floor_pale_dark_blue",  lambda: create_material("Floor_pale_dark_blue",  hex_color_to_rgba("E0E9F2"), 0, 0.1))
+    _get_or_create("Floor_pale_red",        lambda: create_material("Floor_pale_red",        hex_color_to_rgba("F8E0E4"), 0, 0.1))
+    _get_or_create("Floor_pale_orange",     lambda: create_material("Floor_pale_orange",     hex_color_to_rgba("FDEFD9"), 0, 0.1))
+    _get_or_create("Floor_pale_light_green",lambda: create_material("Floor_pale_light_green",hex_color_to_rgba("E0EED2"), 0, 0.1))
+    _get_or_create("Floor_pale_light_blue", lambda: create_material("Floor_pale_light_blue", hex_color_to_rgba("E0F2F9"), 0, 0.1))
+    _get_or_create("Floors_parkingSpot",    lambda: create_material("Floors_parkingSpot",    hex_color_to_rgba("C7C6C6"), 0, 0.1))
+
+    # Per-collection materials
     materials = {
-        "ifc": create_material("ifc", (0.8, 0.8, 0.8, 1), 0, 0.1),
-        "Floor": create_material("Floor", (1, 1, 1, 1), 0, 0.1),
-        "Doors": create_material("Doors", (0.65, 0.65, 0.65, 1), 0.8, 0.1),
-        "Windows": create_glass_material(),
-        "tables": create_material("Table", (0.9, 0.9, 0.9, 1), 0.8, 0.1),
-        "Office_chairs": create_material("Office_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
-        "Dining_chairs": create_material("Dining_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
-        "Arm_chairs": create_material("Arm_chairs", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
-        "Bar_Stools": create_material("Bar_Stools", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
-        "printer": create_material("printer", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
-        "Sofas": create_material("Sofas", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
-        "outdoor_bench": create_material("outdoor_bench", (0.75, 0.75, 0.75, 1), 0.15, 0.15),
-        "outdoor_chair": create_material("outdoor_chair", (0.75, 0.75, 0.75, 1), 0.15, 0.15),
-        "Storage": create_material("Storage", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
-        "Sideboard": create_material("Sideboard", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
-        "RollingContainer": create_material("RollingContainer", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
-        "Locker": create_material("Locker", (0.75, 0.75, 0.75, 1), 0.8, 0.1),
-        "Bathroom": create_material("Bathroon", (0.75, 0.75, 0.75, 1), 0.8, 0.1)
+        "ifc":           _get_or_create("ifc",           lambda: create_material("ifc",           (0.8, 0.8, 0.8, 1), 0, 0.1)),
+        "Floor":         _get_or_create("Floor",         lambda: create_material("Floor",         (1, 1, 1, 1),       0, 0.0)),
+        "Doors":         _get_or_create("Doors",         lambda: create_material("Doors",         (0.65, 0.65, 0.65, 1), 0.8, 0.1)),
+        "Windows":       _get_or_create("Windows",       lambda: create_glass_material()),
+        "printer":       _get_or_create("printer",       lambda: create_material("printer",       (0.75, 0.75, 0.75, 1), 0.8, 0.1)),
+        "Storage":       _get_or_create("Storage",       lambda: create_material("Storage",       (0.75, 0.75, 0.75, 1), 0.8, 0.1)),
+        "Locker":        _get_or_create("Locker",        lambda: create_material("Locker",        (0.75, 0.75, 0.75, 1), 0.8, 0.1)),
+        "Bathroom":      _get_or_create("Bathroom",      lambda: create_material("Bathroom",      (0.75, 0.75, 0.75, 1), 0.8, 0.1)),
+        "Furnish_tables":_get_or_create("Furnish_tables",lambda: create_material("Furnish_tables",(1, 1, 1, 1),       0, 0.0)),
     }
 
     # Assign materials to collections
@@ -1280,15 +1245,18 @@ def assign_collection_materials():
             material = materials[coll.name]
         else:
             material = bpy.data.materials.new(name=coll.name)
-            material.diffuse_color = (0.8, 0.8, 0.8, 1.0)  # Light gray color
-        
-        # Assign material to each object in the collection
+            material.diffuse_color = (0.8, 0.8, 0.8, 1.0)
+            if _debug_mode():
+                print(f"Created material: {coll.name}")
+
         for obj in coll.objects:
             if obj.type == 'MESH':
                 obj.data.materials.clear()
                 obj.data.materials.append(material)
+        
 
 def hide_collection(collection_name):
+    """Hide a collection from both viewport and render by name. Silently skips if not found."""
     if collection := bpy.data.collections.get(collection_name):
         collection.hide_viewport = True
         collection.hide_render = True
@@ -1296,6 +1264,10 @@ def hide_collection(collection_name):
         print(f"Collection '{collection_name}' not found.")
 
 def setup_hdri():
+    """Set up the world HDRI lighting using startup.hdr from the addon's hdri/ folder.
+    Builds a TexCoord → Mapping → EnvironmentTexture → Background → WorldOutput node chain.
+    Called by ESEC_OT_setup_renderer.
+    """
     # Path to your HDRI image
     strDirectory = os.path.join(os.path.dirname(__file__), config.HDRI_DIRECTORY)        
     hdri_path = os.path.join(strDirectory, "startup.hdr")
@@ -1337,261 +1309,238 @@ def setup_hdri():
     # Update the scene, if necessary
     bpy.context.view_layer.update()
 
-def set_transparent_background():
-    # Set the film to transparent
-    bpy.context.scene.render.film_transparent = True
-    
-    # Set transparent glass
-    bpy.context.scene.cycles.film_transparent_glass = True
-
 def setup_camera():
-    # Define scene and camera
+    """Create / replace the top-down camera matching the KeyShot camera spec:
+    - Perspective, 50 mm focal length  → FOV ≈ 39.6° (matches KeyShot 39.598°)
+    - Top-down (elevation 90°), azimuth -90° (Z rotation)
+    - Height auto-calculated so the entire ifc/Structure collection fits in frame.
+    Camera is placed inside the '_Studio' collection (created if missing).
+    """
     scene = bpy.context.scene
 
-    # Remove camera if it already exists
-    if "Camera" in bpy.data.objects:
-        bpy.data.objects.remove(bpy.data.objects["Camera"], do_unlink=True)
+    # --- Get or create the _Studio collection at the scene root ---
+    studio = bpy.data.collections.get("_Studio")
+    if not studio:
+        studio = bpy.data.collections.new("_Studio")
+        scene.collection.children.link(studio)
+        print("[camera] Created '_Studio' collection")
 
-    # Add new camera
+    # Remove any existing Camera objects (from any collection)
+    for obj in list(bpy.data.objects):
+        if obj.type == 'CAMERA':
+            bpy.data.objects.remove(obj, do_unlink=True)
+
+    # Create camera with 50 mm lens (= 39.6° horizontal FOV on a 36 mm sensor)
     camera_data = bpy.data.cameras.new(name="Camera")
+    camera_data.lens = 50          # focal length in mm
+    camera_data.sensor_width = 36  # full-frame sensor
+    camera_data.type = 'PERSP'
+
     camera = bpy.data.objects.new('Camera', camera_data)
-    bpy.context.collection.objects.link(camera)
+    studio.objects.link(camera)    # place camera inside _Studio
+    scene.camera = camera
 
-    # Define camera parameters
-    camera.rotation_euler = (math.radians(90), 0, math.radians(180))
+    # --- Collect all mesh objects from the ifc / Structure collection ---
+    source_collections = ['ifc', 'Walls', 'Floors', 'Structure']
+    mesh_objects = []
+    for coll_name in source_collections:
+        coll = bpy.data.collections.get(coll_name)
+        if coll:
+            for obj in coll.objects:
+                if obj.type == 'MESH':
+                    mesh_objects.append(obj)
 
-    # Check if the 'ifc' collection exists in the scene
-    if 'ifc' in bpy.data.collections:
-        ifc_collection = bpy.data.collections['ifc']
-    else:
-        print("Collection 'ifc' does not exist in the scene.")
+    # Fallback: use all mesh objects in the scene
+    if not mesh_objects:
+        mesh_objects = [o for o in scene.objects if o.type == 'MESH']
+
+    if not mesh_objects:
+        print("[camera] No mesh objects found — camera placed at (0, 0, 20)")
+        camera.location = (0, 0, 20)
+        camera.rotation_euler = (0, 0, math.radians(-90))
         return
 
-    # Create empty mesh and object
-    mesh = bpy.data.meshes.new(name="EmptyMesh")
-    empty_object = bpy.data.objects.new("EmptyObject", mesh)
-    bpy.context.collection.objects.link(empty_object)
-
-    # Create bmesh object and link it to the mesh
+    # Calculate world-space bounding box of all collected objects
     bm = bmesh.new()
-    bm.from_mesh(mesh)
+    for obj in mesh_objects:
+        for corner in obj.bound_box:
+            bm.verts.new(obj.matrix_world @ Vector(corner))
+    bm.verts.ensure_lookup_table()
 
-    # Add all mesh object's vertices in the 'ifc' collection to the bmesh
-    for obj in ifc_collection.objects:
-        if obj.type == 'MESH':
-            transformed = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
-            for vert in transformed:
-                bm.verts.new(vert)
-
-    # Update the bmesh to the mesh
-    bm.to_mesh(mesh)
+    xs = [v.co.x for v in bm.verts]
+    ys = [v.co.y for v in bm.verts]
+    zs = [v.co.z for v in bm.verts]
     bm.free()
 
-    # Calculate center and dimensions of the bounding box
-    bbox_center = 0.125 * sum((Vector(b) for b in empty_object.bound_box), Vector())
-    bbox_dim = empty_object.dimensions
+    center_x = (min(xs) + max(xs)) / 2
+    center_y = (min(ys) + max(ys)) / 2
+    scene_w   = max(xs) - min(xs)
+    scene_h   = max(ys) - min(ys)
+    scene_top = max(zs)
 
-    # Calculate camera distance
-    camera_distance = max(bbox_dim.x, bbox_dim.y) / (2 * math.tan(camera_data.angle / 2))
+    # Camera height: fit the wider scene dimension inside the FOV
+    # Use a 10 % margin so geometry isn't clipped at frame edges
+    half_fov = camera_data.angle / 2   # horizontal FOV in radians
+    # For top-down, the longer ground dimension must fit horizontally
+    # aspect ratio correction: vertical FOV = 2*atan(tan(hFOV/2) / aspect)
+    aspect = scene.render.resolution_x / scene.render.resolution_y
+    half_fov_v = math.atan(math.tan(half_fov / 2) / aspect)
+    dist_from_w = (scene_w / 2 * 1.10) / math.tan(half_fov / 2)
+    dist_from_h = (scene_h / 2 * 1.10) / math.tan(half_fov_v)
+    camera_distance = max(dist_from_w, dist_from_h)
 
-    # Position camera
-    camera.location = bbox_center
-    camera.location.z += camera_distance + 10
-    camera.rotation_euler = (0.0, 0.0, 0.0)  # Rotate the camera 180 degrees around the z axis
+    # Top-down: camera above center, rotation (0,0) = looks straight down.
+    # Z rotation = azimuth -90° as specified in the KeyShot camera settings.
+    camera.location = (center_x, center_y, scene_top + camera_distance)
+    camera.rotation_euler = (0.0, 0.0, math.radians(-90))
 
-
-    # Delete the temporary object
-    bpy.data.objects.remove(empty_object, do_unlink=True)
+    print(f"[camera] Positioned at Z={camera.location.z:.1f} m, covering {scene_w:.1f} x {scene_h:.1f} m scene")
 
 
 
 def setup_render():
-    # Switch the render engine to Cycles
-    bpy.context.scene.render.engine = 'CYCLES'
-    
+    """Configure Cycles render settings to match the KeyShot reference output:
+    3840x2004 @ 300 dpi, PNG+alpha, 512 samples, Gaussian filter 1.5 px, GPU.
+    """
+    scene = bpy.context.scene
+
+    # Engine + device
+    scene.render.engine = 'CYCLES'
+    scene.cycles.device = 'GPU'
+
+    # Resolution  (3840 x 2004, 300 dpi)
+    scene.render.resolution_x = 3840
+    scene.render.resolution_y = 2004
+    scene.render.resolution_percentage = 100
+
+    # Output format — PNG with alpha channel
+    scene.render.image_settings.file_format = 'PNG'
+    scene.render.image_settings.color_mode = 'RGBA'
+    scene.render.image_settings.compression = 15   # light lossless compression
+
+    # Samples
+    scene.cycles.samples = 512
+    scene.cycles.use_adaptive_sampling = False
+
+    # Pixel filter (Gaussian 1.5 px — matches KeyShot pixel filter size 1.5)
+    scene.cycles.pixel_filter_type = 'GAUSSIAN'
+    scene.cycles.filter_width = 1.5
+
+    # Transparent background so the PNG alpha channel is meaningful
+    scene.render.film_transparent = True
+    scene.cycles.film_transparent_glass = True
+
     # Switch the viewport shading to Rendered
     for area in bpy.context.screen.areas:
         if area.type == 'VIEW_3D':
             for space in area.spaces:
                 if space.type == 'VIEW_3D':
-                    space.shading.type = 'RENDERED'    
+                    space.shading.type = 'RENDERED'
 
-    # Hide the 'dxf' collection
-    hide_collection('dxf')  
 
-    # Set the render device to GPU if available
-    bpy.context.scene.cycles.device = 'GPU'
+    print("[render] Cycles render settings applied: 3840x2004, 512 samples, Gaussian 1.5")
     
 
-def create3D_Objects():
-    print("Create 3d objects")
-    create_3Dobject_from_dxf_collection(['TaskChair', 'ConferenceChair', 'Genericofficechair'],'office_chair', 'Office_chairs')       
-    create_3Dobject_from_dxf_collection(['DiningChair', 'GenericChair'],'dining_chair', 'Dining_chairs')        
-    create_3Dobject_from_dxf_collection(['LoungeChair', 'Armchair'],'arm_chair', 'Arm_chairs', ignoreKeyword='Outdoor')
-    create_3Dobject_from_dxf_collection('BarStool','bar_stool', 'Bar_Stools')
-    create_3Dobject_from_dxf_collection('Printer','printer', 'printer')
-    create_3Dobject_from_dxf_collection('Sofa','couch_76x76x45_round', 'Sofas', ignoreKeyword='Corner')
-    create_3Dobject_from_dxf_collection('CornerSofa','couch_76x76x45_round_corner', 'Sofas')
-    create_3Dobject_from_dxf_collection('OutdoorBench','outdoor_bench', 'outdoor_bench')
-    create_3Dobject_from_dxf_collection(['OutdoorChair', 'OutdoorArmchair'],'outdoor_chair', 'outdoor_chair')
-    create_3Dobject_from_dxf_collection('Sink','sink', 'Bathroom')
-    create_3Dobject_from_dxf_collection('Toilet','toilet', 'Bathroom')
-    create_3Dobject_from_dxf_collection('Urinal','urinal', 'Bathroom')
-    create_3Dobject_from_dxf_collection('BumperSmallOttoman','pouf', 'Sofas')    
-
-    print("Create Storage")
-    create_full_squares_from_dxf_collection('Storage', 0.6, 1.2)  
-
-    print("Create sideboards")
-    create_squares_from_dxf_collection('Sideboard', bpy.context.scene.esec_addon_props.sideboard_height)      
-    create_squares_from_dxf_collection('Genericsideboard', bpy.context.scene.esec_addon_props.sideboard_height)     
-
-    print("Create RollingContainer done")
-    create_full_squares_from_dxf_collection('RollingContainer', 0.32, 0.65)     
-
-    print("Create Locker")    
-    create_full_squares_from_dxf_collection('Locker', 1, 2)     
-
-
 def render_scene(resolution_x, resolution_y):
-    global last_imported_dxf_directory, last_imported_dxf_filename
-    # Set up rendering properties
-    bpy.context.scene.render.engine = 'CYCLES'
-    bpy.context.scene.render.image_settings.file_format = 'PNG'
-    bpy.context.scene.render.resolution_x = resolution_x
-    bpy.context.scene.render.resolution_y = resolution_y
-    bpy.context.scene.render.resolution_percentage = 100
-   
-    # Get the absolute path and filename from the BIMProperties
-    abs_path = bpy.data.scenes["Scene"].BIMProperties.ifc_file
-    directory = os.path.dirname(abs_path)
-    filename = os.path.splitext(os.path.basename(abs_path))[0]  # Remove the extension    
+    """Render the scene to a PNG file.
 
-    # Remove the .dxf extension
-    filename = os.path.splitext(filename)[0]+"_3D-render_"+str(resolution_x)+"x"+str(resolution_y)
+    Output path priority:
+      1. Next to the saved .blend file (bpy.data.filepath)
+      2. Next to the currently loaded Bonsai IFC file (BIMProperties.ifc_file)
+      3. ~/Downloads/  (cross-platform fallback when nothing is saved)
 
-    # Set the filepath for the rendered image
-    bpy.context.scene.render.filepath = os.path.join(directory, filename)
+    Output filename: <source_stem>_3D-render_<W>x<H>.png
+    Called by ESEC_OT_render with 3840x2004.
+    """
+    import sys
+    from pathlib import Path
 
-    # Set the active camera
+    scene = bpy.context.scene
+
+    # --- Render settings ---
+    scene.render.engine = 'CYCLES'
+    scene.render.image_settings.file_format = 'PNG'
+    scene.render.resolution_x = resolution_x
+    scene.render.resolution_y = resolution_y
+    scene.render.resolution_percentage = 100
+
+    # --- Resolve output directory and base filename ---
+    directory = None
+    stem = "render"
+
+    # 1. Try saved .blend file location
+    blend_path = bpy.data.filepath
+    if blend_path:
+        directory = os.path.dirname(blend_path)
+        stem = os.path.splitext(os.path.basename(blend_path))[0]
+        print(f"[render] Using .blend path: {directory}")
+
+    # 2. Fall back to Bonsai IFC file location
+    if not directory:
+        try:
+            ifc_path = scene.BIMProperties.ifc_file
+            if ifc_path and os.path.isfile(ifc_path):
+                directory = os.path.dirname(ifc_path)
+                stem = os.path.splitext(os.path.basename(ifc_path))[0]
+                print(f"[render] Using IFC path: {directory}")
+        except Exception:
+            pass
+
+    # 3. Fall back to ~/Downloads (cross-platform)
+    if not directory:
+        if sys.platform == "win32":
+            downloads = Path.home() / "Downloads"
+        elif sys.platform == "darwin":
+            downloads = Path.home() / "Downloads"
+        else:
+            # XDG or plain ~/Downloads on Linux
+            xdg = os.environ.get("XDG_DOWNLOAD_DIR")
+            downloads = Path(xdg) if xdg else Path.home() / "Downloads"
+        downloads.mkdir(parents=True, exist_ok=True)
+        directory = str(downloads)
+        print(f"[render] No saved file found — using Downloads folder: {directory}")
+
+    filename = f"{stem}_3D-render_{resolution_x}x{resolution_y}"
+    scene.render.filepath = os.path.join(directory, filename)
+
+    # --- Camera ---
     if 'Camera' in bpy.data.objects:
-        bpy.context.scene.camera = bpy.data.objects['Camera']
+        scene.camera = bpy.data.objects['Camera']
     else:
-        print("No camera found in the scene.")
+        print("[render] No camera found in scene.")
         return
 
-    print("Start rendering to" + str(bpy.context.scene.render.filepath))
-    # Render the scene
+    print(f"[render] Rendering to: {scene.render.filepath}")
     bpy.ops.render.render(write_still=True)
-    print("Finish renderer")
+
+    global _last_render_path
+    _last_render_path = scene.render.filepath + ".png"
+    print(f"[render] Done: {_last_render_path}")
 
 
-
-
-def move_to_closets_collection():
-    # Ensure the 'closets' collection exists
-    closets_collection = bpy.data.collections.get("closets")
-    if not closets_collection:
-        closets_collection = bpy.data.collections.new("closets")
-        bpy.context.scene.collection.children.link(closets_collection)
-
-    # Find spline objects with 'closets' in their name and move them to the 'closets' collection
-    for obj in bpy.data.objects:
-        if 'closets' in obj.name and obj.type == 'CURVE':
-            # Unlink object from all its current collections
-            for coll in obj.users_collection:
-                coll.objects.unlink(obj)
-            # Link object to the 'closets' collection
-            closets_collection.objects.link(obj)
-
-def convert_splines_to_meshes_in_closets():
-    # Get the 'closets' collection
-    closets_collection = bpy.data.collections.get("closets")
-    if closets_collection is None:
-        print("No 'closets' collection found.")
-        return
-
-    # Deselect all objects
-    bpy.ops.object.select_all(action='DESELECT')
-
-    # Loop through objects in the 'closets' collection
-    for obj in closets_collection.objects:
-        if obj.type == 'CURVE':
-            # Select the object
-            obj.select_set(True)
-
-            # Set the active object (required for the conversion operation)
-            bpy.context.view_layer.objects.active = obj
-
-            # Convert the spline object to a mesh
-            bpy.ops.object.convert(target='MESH')
-
-            # Deselect the object
-            obj.select_set(False)
-            
-            
-def create_faces_in_closets_meshes():
-    # Get the 'closets' collection
-    closets_collection = bpy.data.collections.get("closets")
-    if closets_collection is None:
-        print("No 'closets' collection found.")
-        return
-
-    # Save the original context
-    original_area = bpy.context.area.type
-    bpy.context.area.type = 'VIEW_3D'
-
-    # Deselect all objects
-    bpy.ops.object.select_all(action='DESELECT')
-
-    # Loop through objects in the 'closets' collection
-    for obj in closets_collection.objects:
-        if obj.type == 'MESH':
-            # Select the object
-            obj.select_set(True)
-
-            # Set the active object (required for the edit mode operations)
-            bpy.context.view_layer.objects.active = obj
-
-            # Switch to edit mode
-            bpy.ops.object.mode_set(mode='EDIT')
-
-            # Select all vertices
-            bpy.ops.mesh.select_all(action='SELECT')
-
-            # Create a new edge/face from vertices
-            bpy.ops.mesh.edge_face_add()
-
-            # Extrude on Z axis by 1.8 units
-            bpy.ops.transform.translate(value=(0, 0, 0))
-
-            # Switch back to object mode
-            bpy.ops.object.mode_set(mode='OBJECT')
-
-            # Deselect the object
-            obj.select_set(False)
-
-    # Restore the original context
-    bpy.context.area.type = original_area
 
 
 def organize_collections():
-
-    # Remove any empty collections
-    for collection in list(bpy.data.collections):  # Make a copy of the list because we're modifying it
+    """Group all scene collections into the two top-level parents: Structure and Assets.
+    - Removes empty collections first.
+    - Creates Structure/Assets parents if missing.
+    - Moves known IFC collections (Floors, Doors, Walls, etc.) under Structure.
+    - Moves furniture/asset collections (tables, chairs, Furnish_* etc.) under Assets.
+    Called as a processing step and via ESEC_OT_organize_collections button.
+    """
+    # Remove empty collections — but never touch _Studio (may be empty before setup_renderer runs)
+    for collection in list(bpy.data.collections):
+        if collection.name == "_Studio":
+            continue
         if len(collection.objects) == 0 and len(collection.children) == 0:
             bpy.data.collections.remove(collection)
 
-    # Create 'Structure', 'DXF', and 'Assets' collections if they don't exist
+    # Create 'Structure', and 'Assets' collections if they don't exist
     structure_collection = bpy.data.collections.get('Structure')
     if not structure_collection:
         structure_collection = bpy.data.collections.new('Structure')
         bpy.context.scene.collection.children.link(structure_collection)
 
-    dxf_collection = bpy.data.collections.get('DXF')
-    if not dxf_collection:
-        dxf_collection = bpy.data.collections.new('DXF')
-        bpy.context.scene.collection.children.link(dxf_collection)
 
     assets_collection = bpy.data.collections.get('Assets')
     if not assets_collection:
@@ -1599,15 +1548,16 @@ def organize_collections():
         bpy.context.scene.collection.children.link(assets_collection)
 
     # List of collections to move to 'Structure'
-    structure_collections = ['ifc', 'Floors', 'Doors', 'Windows', 'floors_intersect', 'Parking']
+    structure_collections = [
+        'ifc', 'Floors', 'Ceiling', 'Doors', 'Windows', 'floors_intersect', 'Parking',
+        'Space', 'Stair', 'Railing', 'Walls', 'Column', 'IfcElementAssembly', 'Spaces',
+    ]
 
-    # List of collections to move to 'DXF'
-    dxf_collections = ['dxf', 'dxf_orphan']
 
     # List of collections to move to 'Assets'
     asset_collections = ['tables', 'Office_chairs', 'Dining_chairs', 'Arm_chairs', 'Bar_Stools', 'printer', 
                          'Sofas', 'outdoor_bench', 'outdoor_chair', 'Storage', 'Sideboard', 'Bathroom', 
-                         'closets', 'Genericsideboard', 'Locker', 'RollingContainer' 
+                         'closets', 'Genericsideboard', 'Locker', 'RollingContainer', 'Furnish' 
                          ]
 
     # Move collections to 'Structure'
@@ -1618,367 +1568,68 @@ def organize_collections():
             if collection.name not in structure_collection.children:
                 structure_collection.children.link(collection)
 
-    # Move collections to 'DXF'
-    for col_name in dxf_collections:
-        if collection := bpy.data.collections.get(col_name):
-            if collection.name in bpy.context.scene.collection.children:
-                bpy.context.scene.collection.children.unlink(collection)
-            if collection.name not in dxf_collection.children:
-                dxf_collection.children.link(collection)
 
-    # Move collections to 'Assets'
-    for col_name in asset_collections:
+    # Move collections to 'Assets' (static list + any dynamic Furnish_* collections)
+    dynamic_furnish = [c.name for c in bpy.data.collections if c.name.startswith("Furnish_")]
+    for col_name in asset_collections + dynamic_furnish:
         if collection := bpy.data.collections.get(col_name):
             if collection.name in bpy.context.scene.collection.children:
                 bpy.context.scene.collection.children.unlink(collection)
-            if collection.name not in assets_collection:
+            if collection.name not in assets_collection.children:
                 assets_collection.children.link(collection)
 
 
-    kitchen_collection = bpy.data.collections.get('Kitchen')
-    if not kitchen_collection:
-        kitchen_collection = bpy.data.collections.new('Kitchen')
-        bpy.context.scene.collection.children.link(kitchen_collection)
-
-    stairs_collection = bpy.data.collections.get('Stairs')
-    if not stairs_collection:
-        stairs_collection = bpy.data.collections.new('Stairs')
-        bpy.context.scene.collection.children.link(stairs_collection)
-
-
-###
-
-def close_holes_process_floors():
-    # Create a new collection
-    new_collection = bpy.data.collections.new("floors_intersect")
-    bpy.context.scene.collection.children.link(new_collection)
-    
-    # Get reference to the existing 'Floors' collection
-    floors_collection = bpy.data.collections.get("Floors")
-    
-    # Check if 'Floors' collection exists
-    if floors_collection is None:
-        print("Collection 'Floors' not found.")
-        return
-
-    # Copy each object from 'Floors' collection to the new collection
-    for obj in floors_collection.objects:
-        new_obj = obj.copy()
-        new_obj.data = obj.data.copy()
-        new_collection.objects.link(new_obj)
-        
-    # Combine all objects in the new collection into one mesh
-    bpy.context.view_layer.active_layer_collection = bpy.context.view_layer.layer_collection.children['floors_intersect']
-    bpy.ops.object.select_all(action='DESELECT')
-
-    for obj in new_collection.objects:
-        obj.select_set(True)
-        bpy.context.view_layer.objects.active = obj
-
-    bpy.ops.object.join()
-    
-    # Set the name of the joined object
-    bpy.context.object.name = "Floors_combined"
-
-    # Set the origin of 'floors_intersect' object to geometry
-    #bpy.ops.object.origin_set(type='ORIGIN_CENTER_OF_MASS', center='BOUNDS')
-
-    # Create a new plane with the same settings as floors_intersect
-    bpy.ops.mesh.primitive_plane_add(size=1)
-    plane = bpy.context.object
-    plane.name = "Floors_Intersect"
-
-    # Set the plane's settings to match floors_combined
-    floors_intersect = bpy.data.objects.get("Floors_combined")
-    if floors_intersect is not None:
-        plane.location = floors_intersect.location
-        plane.scale = floors_intersect.scale
-        plane.dimensions = floors_intersect.dimensions
-    else:
-        print("Object 'Floors_combined' not found.")
-
-#process_floors()
-
-def close_holes_extrude_top_face():
-    # Get the object named "Plan" from the "floors_intersect" collection
-    floors_intersect_collection = bpy.data.collections.get("floors_intersect")
-    if floors_intersect_collection is None:
-        print("Collection 'floors_intersect' not found.")
-        return
-
-    plan_object = floors_intersect_collection.objects.get("Floors_Intersect")
-    if plan_object is None:
-        print("Object 'Plane' not found.")
-        return
-    
-    # Set the "Floors_Intersect" object as the active object
-    bpy.context.view_layer.objects.active = plan_object
-    plan_object.select_set(True)
-    
-    # Switch to edit mode
-    bpy.ops.object.mode_set(mode='EDIT')
-
-    # Deselect all
-    bpy.ops.mesh.select_all(action='DESELECT')
-
-    # Switch to face select mode
-    bpy.context.tool_settings.mesh_select_mode = (False, False, True)
-    
-    # Select all faces
-    bpy.ops.mesh.select_all(action='SELECT')
-
-    # Extrude the faces on the Z axis by 0.197681 m
-    bpy.ops.mesh.extrude_region_move(
-        TRANSFORM_OT_translate={"value": (0, 0, 0.19)}
-    )
-    
-    # Switch back to object mode
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-def close_holes_apply_boolean_difference():
-    # Get the collection
-    floors_intersect_collection = bpy.data.collections.get("floors_intersect")
-    if floors_intersect_collection is None:
-        print("Collection 'floors_intersect' not found.")
-        return
-
-    # Get the Plane object
-    plane_object = floors_intersect_collection.objects.get("Floors_Intersect")
-    if plane_object is None:
-        print("Object 'Floors_Intersect' not found.")
-        return
-
-    # Get the floors_intersect object
-    floors_combined_object = floors_intersect_collection.objects.get("Floors_combined")
-    if floors_combined_object is None:
-        print("Object 'Floors_combined' not found.")
-        return
-
-    # Add a boolean modifier to the Plane object
-    bool_mod = plane_object.modifiers.new(name="BooleanMod", type='BOOLEAN')
-    bool_mod.operation = 'DIFFERENCE'
-    bool_mod.object = floors_combined_object
-    bool_mod.solver = 'EXACT'
-    bool_mod.use_self = True
-
-    # Apply the modifier
-    bpy.context.view_layer.objects.active = plane_object
-    #bpy.ops.object.modifier_apply(modifier=bool_mod.name)
-
-def close_holes_deactivate_rendering():
-    # List of collections to deactivate for rendering
-    collections_to_deactivate = ["ifc", "Floors", "Doors", "Windows"]
-    
-    # Deactivate each collection for rendering
-    for collection_name in collections_to_deactivate:
-        collection = bpy.data.collections.get(collection_name)
-        if collection is not None:
-            collection.hide_viewport = True
-        else:
-            print(f"Collection '{collection_name}' not found.")
-
-    # Deactivate boolean modifiers for viewport rendering in 'Floors_Intersect'
-    object_name = "Floors_Intersect"
-    obj = bpy.data.objects.get(object_name)
-    if obj is not None:
-        for mod in obj.modifiers:
-            if mod.type == 'BOOLEAN':
-                mod.show_viewport = False
-    else:
-        print(f"Object '{object_name}' not found.")
-
-
-def close_holes_finish():
-    # List of collections to activate for rendering
-    collections_to_activate = ["ifc", "Floors", "Doors", "Windows"]
-    
-    # Activate each collection for rendering
-    for collection_name in collections_to_activate:
-        collection = bpy.data.collections.get(collection_name)
-        if collection is not None:
-            collection.hide_viewport = False
-        else:
-            print(f"Collection '{collection_name}' not found.")
-
-    # Object to hide in the viewport
-    object_name = "Floors_combined"
-    obj = bpy.data.objects.get(object_name)
-    if obj is not None:
-        obj.hide_viewport = True
-    else:
-        print(f"Object '{object_name}' not found.")
-
-    # Activate and apply boolean modifiers for viewport rendering in 'Floors_Intersect'
-    object_name = "Floors_Intersect"
-    obj = bpy.data.objects.get(object_name)
-    if obj is not None:
-        bpy.context.view_layer.objects.active = obj
-        for mod in obj.modifiers:
-            if mod.type == 'BOOLEAN':
-                mod.show_viewport = True
-                bpy.ops.object.modifier_apply({"object": obj}, modifier=mod.name)
-    else:
-        print(f"Object '{object_name}' not found.")
-
-    # Assign material "floors" to 'Floors_Intersect'
-    floors_material = bpy.data.materials.get("Floors")
-    if floors_material is not None:
-        if obj is not None:
-            if len(obj.data.materials) > 0:
-                # assign to material slot 0
-                obj.data.materials[0] = floors_material
-            else:
-                # no slots
-                obj.data.materials.append(floors_material)
-    else:
-        print("Material 'Floors' not found.")
-
-##############################
-# parking lots
-# rename parking lots floors
-##############################
-
-def collect_spaces(collection, space_objects):
-    for obj in collection.objects:
-        if 'IfcSlab' in obj.name:
-            space_objects.append(obj)
-
-    for child_collection in collection.children:
-        collect_spaces(child_collection, space_objects)
-
-def collect_text_objects(collection, text_objects):
-    for obj in collection.objects:
-        if obj.type == 'FONT':
-            text_objects.append(obj)
-
-    for child_collection in collection.children:
-        collect_text_objects(child_collection, text_objects)
-
-def sort_spaces_numerically(space_object):
-    number = re.search(r'\d+', space_object.name)
-    return int(number.group(0)) if number else 0
-
-def get_bounding_box(obj):
-    bbox_min = [min(obj.bound_box[i][j] for i in range(8)) for j in range(3)]
-    bbox_max = [max(obj.bound_box[i][j] for i in range(8)) for j in range(3)]
-    return bbox_min, bbox_max
-
-def is_text_inside_space(text_obj, space_obj):
-    text_pos = text_obj.matrix_world.translation
-    bbox_corners = [mathutils.Vector(corner) for corner in space_obj.bound_box]
-    bbox_world_corners = [space_obj.matrix_world @ corner for corner in bbox_corners]
-
-    bbox_min = [min(corner[i] for corner in bbox_world_corners) for i in range(3)]
-    bbox_max = [max(corner[i] for corner in bbox_world_corners) for i in range(3)]
-
-    return bbox_min[0] <= text_pos[0] <= bbox_max[0] and bbox_min[1] <= text_pos[1] <= bbox_max[1]
-
-
-def rename_parking_floors():
-    space_replacements = {}
-    ifc_project_none = bpy.data.collections.get('IfcProject/None')
-
-    if ifc_project_none is None:
-        print("IfcProject/None collection not found.")
-        return
-
-    space_objects = []
-    collect_spaces(ifc_project_none, space_objects)
-
-    text_objects = []
-    collect_text_objects(bpy.context.scene.collection, text_objects)
-
-    sorted_space_objects = sorted(space_objects, key=sort_spaces_numerically)
-    
-    keywords = ['Parking']
-    #keywords = bpy.context.scene.esec_strings_to_keep.split(', ')
-
-    total_texts_found = 0
-
-    for space in sorted_space_objects:
-        bbox_min, bbox_max = get_bounding_box(space)
-        x_length = bbox_max[0] - bbox_min[0]
-        y_length = bbox_max[1] - bbox_min[1]
-        size = x_length * y_length
-
-        #space_output = f"{space.name} - X length: {x_length:.2f}, Y length: {y_length:.2f}, Size: {size:.2f}"
-        space_output = f"{space.name} - "
-
-        texts_found = 0
-        matching_text = ""
-
-        for text_obj in text_objects:
-            cleaned_text = re.sub(r'[^A-Za-z0-9\s.]', '', text_obj.data.body.replace('\n', ' '))
-            cleaned_text = re.sub(r'\s{2,}', ' ', cleaned_text)  # Remove multiple consecutive whitespaces
-
-            if any(keyword in cleaned_text for keyword in keywords) and is_text_inside_space(text_obj, space):
-                texts_found += 1
-                matching_text = cleaned_text
-
-        if texts_found == 1:
-            space_output += f"{matching_text}"
-            print(space_output)
-            total_texts_found += 1
-            space_replacements[space.name] = matching_text
-
-    print(f"Total number of IFC spaces: {len(sorted_space_objects)}")
-    print(f"Total number of texts found in spaces: {total_texts_found}")
-
-    replace_space_names_in_ifc(space_replacements)
-          
-            
-    return space_replacements
-
-def replace_space_names_in_ifc(space_replacements):
-    
-    #space_replacements
-    for space_name, new_space_name in space_replacements.items():
-        space_name_without_prefix = space_name.replace("IfcSlab/", "")
-        print(f"found {space_name_without_prefix} - {new_space_name}")
-        
-        #ifc
-        for obj in bpy.data.objects:
-            # Make sure the object is an IfcSpace                    
-            old_name = obj.name.split('/')[-1]  # Get the last part of the name after '/'
-            # Check if the name follows the expected format
-            if old_name.startswith('Floor_'):                                        
-                if old_name == space_name_without_prefix :            
-                    print("rename " + old_name + " to " + new_space_name)
-                    obj.name = obj.name.replace(old_name, new_space_name)    
    
 
-def select_objects_from_collection(collection_name, parent_name=None):
-    """Select all objects from a specified collection. 
-    Optionally, specify a parent collection."""
-    
-    # If parent_name is given, find the parent collection
-    if parent_name:
-        parent_col = bpy.data.collections.get(parent_name)
-        if not parent_col:
-            print(f"No collection found with the name {parent_name}.")
-            return
-        # Get the nested collection from the parent collection
-        target_col = parent_col.children.get(collection_name)
-    else:
-        # Otherwise, just get the collection by name from bpy.data.collections
-        target_col = bpy.data.collections.get(collection_name)
-    
-    # If the target collection was found, select its objects
-    if target_col:
-        for obj in target_col.objects:
-            obj.select_set(True)
-    else:
-        print(f"No collection found with the name {collection_name}.")
-
-
-
-
 def reduce_scale():
-    # Iterate through selected objects in the scene
-    for obj in bpy.context.selected_objects:
-        # Check if the object is of type 'MESH'
-        if obj.type == 'MESH':
-            # Reduce the x and y scale by 0.05
-            obj.scale[0] *= (1 - 0.05)
-            obj.scale[1] *= (1 - 0.05)
+    # Store names — Bonsai may rebuild mesh objects after origin_set,
+    # making Python references stale. Look objects up fresh by name in loop 2.
+    selected_names = [obj.name for obj in bpy.context.selected_objects if obj.type == 'MESH']
+    prev_active = bpy.context.view_layer.objects.active
+    print(f"[reduce_scale] {len(selected_names)} mesh object(s) selected")
+
+    # Loop 1: fix origins where needed
+    origins_fixed = set()
+    for name in selected_names:
+        obj = bpy.data.objects.get(name)
+        if not obj or not obj.data or not getattr(obj.data, 'vertices', None):
+            continue
+        local_centroid = sum((v.co for v in obj.data.vertices), Vector()) / len(obj.data.vertices)
+        centroid_dist = local_centroid.length
+        if _debug_mode():
+            print(f"[reduce_scale] L1  '{name}'  centroid dist={centroid_dist:.4f}")
+        if centroid_dist > 0.001:
+            bpy.ops.object.select_all(action='DESELECT')
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='MEDIAN')
+            origins_fixed.add(name)
+            if _debug_mode():
+                print(f"[reduce_scale] L1  '{name}'  → origin_set applied")
+
+    # Loop 2: shrink vertex positions directly — avoids Bonsai's scale→IFC sync
+    # which fails for parametric slabs and reverts on KeyShot export.
+    for name in selected_names:
+        obj = bpy.data.objects.get(name)
+        if not obj or not obj.data or not getattr(obj.data, 'vertices', None):
+            if _debug_mode():
+                print(f"[reduce_scale] L2  '{name}': object not found or no mesh")
+            continue
+        vert_count = len(obj.data.vertices)
+        for v in obj.data.vertices:
+            v.co.x *= 0.90
+            v.co.y *= 0.90
+        obj.data.update()
+        obj.location.z = -1
+        if _debug_mode():
+            print(f"[reduce_scale] L2  '{name}'  scaled {vert_count} vertices by 0.95 XY, Z set to -0.5  (origin_fixed={name in origins_fixed})")
+
+    # Restore selection
+    bpy.ops.object.select_all(action='DESELECT')
+    for name in selected_names:
+        obj = bpy.data.objects.get(name)
+        if obj:
+            obj.select_set(True)
+    if prev_active:
+        bpy.context.view_layer.objects.active = prev_active
          

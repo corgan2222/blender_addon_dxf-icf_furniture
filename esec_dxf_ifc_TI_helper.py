@@ -1,7 +1,7 @@
 bl_info = {
     "name": "ESEC ICF-TI Helper",
     "author": "stefan.knaak@e-shelter.io",
-    "version": (1, 7),
+    "version": (2, 1),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Rename IFC Space based on DXF roomnames",
@@ -14,8 +14,16 @@ import bpy
 import re
 import mathutils
 import os
-import blenderbim.tool as tool
-from blenderbim.bim.ifc import IfcStore
+try:
+    import bonsai.tool as tool
+    from bonsai.bim.ifc import IfcStore
+except ModuleNotFoundError:
+    try:
+        import blenderbim.tool as tool
+        from blenderbim.bim.ifc import IfcStore
+    except ModuleNotFoundError:
+        tool = None
+        IfcStore = None
 
 def rename_spaces_by_longname():
     # Define the longnames to look for and their corresponding new names
@@ -267,7 +275,10 @@ class ESEC_OT_ImportIFC(bpy.types.Operator):
     bl_description = "Import IFC file"
 
     def execute(self, context):
-        bpy.ops.import_ifc.bim('INVOKE_DEFAULT')
+        try:
+            bpy.ops.bim.load_project('INVOKE_DEFAULT')
+        except AttributeError:
+            bpy.ops.import_ifc.bim('INVOKE_DEFAULT')
         return {'FINISHED'}
 
 class ESEC_OT_ImportDXF(bpy.types.Operator):
@@ -312,7 +323,7 @@ class ESEC_OT_RenameSpaces(bpy.types.Operator):
 
 
 class ESEC_PT_MainPanel(bpy.types.Panel):
-    bl_label = "ESEC IFC-TI Helper v"+ str(bl_info['version'])
+    bl_label = "ESEC IFC-TI Helper v" + ".".join(map(str, bl_info['version']))
     bl_idname = "ESEC_PT_MainPanel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
