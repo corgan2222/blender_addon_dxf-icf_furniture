@@ -89,7 +89,8 @@ def sort_key(longname, name, front, back):
         group, rank = 1, 0
     m = re.search(r'(\d+)', name or '')
     number = int(m.group(1)) if m else 0
-    return (group, rank, type_key, number, name or '')
+    alpha = (name or '').strip().lower()
+    return (alpha, group, rank, type_key, number)
 
 
 def remap_refs(line, remap):
