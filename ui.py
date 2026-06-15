@@ -8,6 +8,7 @@ import bpy
 import mathutils
 from bpy.types import Panel
 from mathutils import Vector
+from .helpers import cprint
 
 from . import config, esec_archiologic_importer
 
@@ -23,6 +24,8 @@ def _debug_mode():
     """Return True if the addon's debug_mode preference is enabled."""
     prefs = _get_prefs()
     return prefs.debug_mode if prefs else False
+
+
 
 class ESEC_OT_OpenAddonPreferences_DXF(bpy.types.Operator):
     """Show instructions for enabling DXF Import"""
@@ -120,7 +123,7 @@ class ESEC_PT_panel(bpy.types.Panel):
                     box.prop(prefs, "repair_missing_walls", text="Repair missing walls on IFC import")
                     box.prop(prefs, "debug_mode", text="Debug Mode")
 
-        layout.label(text="  stefan.knaak@e-shelter.io")            
+        layout.label(text="  stefan.knaak@e-shelter.io")
 
 
     @staticmethod
@@ -212,7 +215,7 @@ class ESEC_OT_process_ifc(bpy.types.Operator):
         return steps
 
     def invoke(self, context, _event):
-        print("Beginn IFC processing")
+        cprint("Beginn IFC processing", "yellow")
         self._steps = self._build_steps(context)
         self._step = 0
         context.window_manager.progress_begin(0, len(self._steps))
@@ -226,15 +229,14 @@ class ESEC_OT_process_ifc(bpy.types.Operator):
 
         if self._step < len(self._steps):
             label, fn = self._steps[self._step]
-            text = f"Step 1-5  [{self._step + 1}/{len(self._steps)}]  {label}"
-            if _debug_mode():
-                print(f"[process_ifc] {text}")
+            text = f" [{self._step + 1}/{len(self._steps)}]  {label}"            
+            cprint(f"[process_ifc] {text}", "green")
             context.workspace.status_text_set(text)
             context.window_manager.progress_update(self._step)
             try:
                 fn()
             except Exception as e:
-                print(f"[process_ifc] ERROR in '{label}': {e}")
+                cprint(f"[process_ifc] ERROR in '{label}': {e}", "red")
                 self._finish(context)
                 self.report({'ERROR'}, str(e))
                 return {'CANCELLED'}
@@ -242,7 +244,7 @@ class ESEC_OT_process_ifc(bpy.types.Operator):
             return {'RUNNING_MODAL'}
 
         self._finish(context)
-        print("all done")
+        cprint("all done", "green")
         self.report({'INFO'}, "IFC processing complete.")
         return {'FINISHED'}
 
@@ -274,7 +276,7 @@ class ESEC_OT_process_ifc(bpy.types.Operator):
         if ceiling:
             ceiling.hide_viewport = True
             print("Collection 'Ceiling' is now hidden.")
-    
+
 
 
 
@@ -607,7 +609,7 @@ class ESEC_OT_select_by_suffix(bpy.types.Operator):
         self.report({'INFO'}, f"Selected {count} slab(s): '{self.suffix}'")
 
         return {'FINISHED'}
-    
+
 class ESEC_OT_prep_parking(bpy.types.Operator):
     bl_idname = "esec.prep_parking"
     bl_label = "Reduce selected by 0.05"
@@ -616,7 +618,7 @@ class ESEC_OT_prep_parking(bpy.types.Operator):
     def execute(self, context):
         reduce_scale()
         return {'FINISHED'}
-    
+
 class ESEC_OT_organize_collections(bpy.types.Operator):
     bl_idname = "esec.organize_collections"
     bl_label = "Organize Collections"
@@ -739,7 +741,7 @@ def register():  # sourcery skip: extract-method
         km = kc.keymaps.new(name='3D View', space_type='VIEW_3D')
         kmi = km.keymap_items.new(ESEC_OT_ImportIfc.bl_idname, 'I', 'PRESS', alt=True, shift=True)
         addon_keymaps.append((km, kmi))    
-    
+
 
 def unregister():
     bpy.utils.unregister_class(ESEC_OT_process_ifc)
@@ -762,12 +764,12 @@ def unregister():
     bpy.utils.unregister_class(ESEC_OT_prep_parking)
     bpy.utils.unregister_class(ESEC_OT_repair_missing_walls)
     bpy.utils.unregister_class(ESEC_OT_OpenAddonPreferences_DXF)
-    bpy.utils.unregister_class(ESEC_OT_OpenAddonPreferences_BIM)        
+    bpy.utils.unregister_class(ESEC_OT_OpenAddonPreferences_BIM)
 
     for km, kmi in addon_keymaps:
         km.keymap_items.remove(kmi)
     addon_keymaps.clear()    
-        
+
 #######################################################################################
 
 
@@ -823,7 +825,7 @@ def move_objects_to_ifc():
                 pass
             if ifc_collection not in obj.users_collection:
                 ifc_collection.objects.link(obj)
-            
+
             if _debug_mode():
                 print(f"  Moved '{obj.name}' → 'ifc'")
         for child in list(src_coll.children):
@@ -1122,7 +1124,7 @@ def create_glass_material():
     output_node = nodes.new(type='ShaderNodeOutputMaterial')
     links = glass_material.node_tree.links
     link = links.new(glass_node.outputs[0], output_node.inputs[0])
-    
+
     return glass_material
 
 
@@ -1253,7 +1255,7 @@ def assign_collection_materials():
             if obj.type == 'MESH':
                 obj.data.materials.clear()
                 obj.data.materials.append(material)
-        
+
 
 def hide_collection(collection_name):
     """Hide a collection from both viewport and render by name. Silently skips if not found."""
@@ -1266,48 +1268,48 @@ def hide_collection(collection_name):
 def setup_hdri():
     """Set up the world HDRI lighting using startup.hdr from the addon's hdri/ folder.
     Builds a TexCoord → Mapping → EnvironmentTexture → Background → WorldOutput node chain.
+    HDRI is rotated so the bright spot comes from upper-left → soft directional shadows.
     Called by ESEC_OT_setup_renderer.
     """
-    # Path to your HDRI image
-    strDirectory = os.path.join(os.path.dirname(__file__), config.HDRI_DIRECTORY)        
+    strDirectory = os.path.join(os.path.dirname(__file__), config.HDRI_DIRECTORY)
     hdri_path = os.path.join(strDirectory, "startup.hdr")
-
 
     # Create a new world if there is none
     if not bpy.data.worlds:
         bpy.context.scene.world = bpy.data.worlds.new("World")
-        
-    # Set the world to use nodes
+
     bpy.context.scene.world.use_nodes = True
-
-    # Get the tree
     tree = bpy.context.scene.world.node_tree
-
-    # Clear all nodes to start clean
     tree.nodes.clear()
 
-    # Add the needed nodes
-    links = tree.links
+    links     = tree.links
     tex_coord = tree.nodes.new(type='ShaderNodeTexCoord')
-    mapping = tree.nodes.new(type='ShaderNodeMapping')
-    texture = tree.nodes.new(type='ShaderNodeTexEnvironment')
-    bg = tree.nodes.new(type='ShaderNodeBackground')
-    output = tree.nodes.new(type='ShaderNodeOutputWorld')
+    mapping   = tree.nodes.new(type='ShaderNodeMapping')
+    texture   = tree.nodes.new(type='ShaderNodeTexEnvironment')
+    bg        = tree.nodes.new(type='ShaderNodeBackground')
+    output    = tree.nodes.new(type='ShaderNodeOutputWorld')
 
-    # Set the HDRI image
-    texture.image = bpy.data.images.load(hdri_path)
+    texture.image = bpy.data.images.load(hdri_path, check_existing=True)
 
-    # Connect the nodes
+    # Rotation: tilt the HDRI so the bright top-spot shifts toward upper-left
+    # X = forward/back tilt (positive = light from front/top)
+    # Y = left/right tilt  (positive = light from right side)
+    # Z = horizontal rotation (positive = rotate CCW when viewed from above)
+    mapping.inputs['Rotation'].default_value = (
+        math.radians(20),   # X: tilt 20° forward → light slightly from above-front
+        math.radians(0),    # Y: no left/right tilt
+        math.radians(45),   # Z: rotate 45° → bright spot from upper-left corner
+    )
+
     links.new(tex_coord.outputs['Generated'], mapping.inputs['Vector'])
-    links.new(mapping.outputs['Vector'], texture.inputs['Vector'])
-    links.new(texture.outputs['Color'], bg.inputs['Color'])
-    links.new(bg.outputs['Background'], output.inputs['Surface'])
+    links.new(mapping.outputs['Vector'],      texture.inputs['Vector'])
+    links.new(texture.outputs['Color'],       bg.inputs['Color'])
+    links.new(bg.outputs['Background'],       output.inputs['Surface'])
 
-    # Set the world strength
-    bg.inputs['Strength'].default_value = 1.0  # Set to desired strength
+    bg.inputs['Strength'].default_value = 0.8
 
-    # Update the scene, if necessary
     bpy.context.view_layer.update()
+    print(f"[hdri] Loaded {hdri_path}, strength=0.8, rotation X=20° Z=45°")
 
 def setup_camera():
     """Create / replace the top-down camera matching the KeyShot camera spec:
@@ -1330,34 +1332,31 @@ def setup_camera():
         if obj.type == 'CAMERA':
             bpy.data.objects.remove(obj, do_unlink=True)
 
-    # Create camera with 50 mm lens (= 39.6° horizontal FOV on a 36 mm sensor)
+    # Orthographic camera — true 90° top-down, no perspective distortion
     camera_data = bpy.data.cameras.new(name="Camera")
-    camera_data.lens = 50          # focal length in mm
-    camera_data.sensor_width = 36  # full-frame sensor
-    camera_data.type = 'PERSP'
+    camera_data.type = 'ORTHO'
 
     camera = bpy.data.objects.new('Camera', camera_data)
     studio.objects.link(camera)    # place camera inside _Studio
     scene.camera = camera
 
-    # --- Collect all mesh objects from the ifc / Structure collection ---
-    source_collections = ['ifc', 'Walls', 'Floors', 'Structure']
-    mesh_objects = []
-    for coll_name in source_collections:
-        coll = bpy.data.collections.get(coll_name)
-        if coll:
-            for obj in coll.objects:
-                if obj.type == 'MESH':
-                    mesh_objects.append(obj)
-
-    # Fallback: use all mesh objects in the scene
-    if not mesh_objects:
-        mesh_objects = [o for o in scene.objects if o.type == 'MESH']
+    # Collect ALL visible mesh objects — works regardless of collection structure
+    # (after Step 2 the IFC objects are in sub-collections, not directly in 'ifc')
+    skip_prefixes = ('KS_',)   # exclude our own camera/sun helpers
+    mesh_objects = [
+        o for o in scene.objects
+        if o.type == 'MESH'
+        and o.visible_get()
+        and not any(o.name.startswith(p) for p in skip_prefixes)
+    ]
 
     if not mesh_objects:
-        print("[camera] No mesh objects found — camera placed at (0, 0, 20)")
-        camera.location = (0, 0, 20)
-        camera.rotation_euler = (0, 0, math.radians(-90))
+        print("[camera] No mesh objects found — camera placed at (0, 0, 100)")
+        camera.location = (0, 0, 100)
+        camera_data.ortho_scale = 50
+        # point straight down via track_quat
+        down = Vector((0, 0, -1))
+        camera.rotation_euler = down.to_track_quat('-Z', 'Y').to_euler()
         return
 
     # Calculate world-space bounding box of all collected objects
@@ -1377,30 +1376,86 @@ def setup_camera():
     scene_w   = max(xs) - min(xs)
     scene_h   = max(ys) - min(ys)
     scene_top = max(zs)
+    scene_min_z = min(zs)
 
-    # Camera height: fit the wider scene dimension inside the FOV
-    # Use a 10 % margin so geometry isn't clipped at frame edges
-    half_fov = camera_data.angle / 2   # horizontal FOV in radians
-    # For top-down, the longer ground dimension must fit horizontally
-    # aspect ratio correction: vertical FOV = 2*atan(tan(hFOV/2) / aspect)
+    # Orthographic scale: fit the larger dimension + 12 % margin
     aspect = scene.render.resolution_x / scene.render.resolution_y
-    half_fov_v = math.atan(math.tan(half_fov / 2) / aspect)
-    dist_from_w = (scene_w / 2 * 1.10) / math.tan(half_fov / 2)
-    dist_from_h = (scene_h / 2 * 1.10) / math.tan(half_fov_v)
-    camera_distance = max(dist_from_w, dist_from_h)
+    needed_x = scene_w * 1.12
+    needed_y = scene_h * 1.12 * aspect
+    camera_data.ortho_scale = max(needed_x, needed_y)
+    camera_data.clip_start  = 0.1
+    camera_data.clip_end    = (scene_top - scene_min_z + 200)
 
-    # Top-down: camera above center, rotation (0,0) = looks straight down.
-    # Z rotation = azimuth -90° as specified in the KeyShot camera settings.
-    camera.location = (center_x, center_y, scene_top + camera_distance)
-    camera.rotation_euler = (0.0, 0.0, math.radians(-90))
+    # Point camera straight down using track_quat — reliable regardless of coord system
+    cam_z = scene_top + 100
+    camera.location = (center_x, center_y, cam_z)
+    down = Vector((0, 0, -1))
+    camera.rotation_euler = down.to_track_quat('-Z', 'Y').to_euler()
 
-    print(f"[camera] Positioned at Z={camera.location.z:.1f} m, covering {scene_w:.1f} x {scene_h:.1f} m scene")
+    # Hide collections that block or clutter the top-down floor plan render
+    # All three Outliner toggles: Viewport, Render, View Layer exclude
+    def _find_layer_collection(layer_coll, name):
+        if layer_coll.name == name:
+            return layer_coll
+        for child in layer_coll.children:
+            result = _find_layer_collection(child, name)
+            if result:
+                return result
+        return None
 
+    hide_collections = ('Ceiling', 'Spaces')
+    for coll_name in hide_collections:
+        coll = bpy.data.collections.get(coll_name)
+        if coll:
+            coll.hide_viewport = True   # eye icon
+            coll.hide_render   = True   # camera icon
+        lc = _find_layer_collection(scene.view_layers[0].layer_collection, coll_name)
+        if lc:
+            lc.exclude = True           # checkbox (exclude from view layer)
+        if coll or lc:
+            print(f"[camera] All 3 toggles off for '{coll_name}'")
+
+    # Switch the active 3D viewport to look through the camera (= Numpad 0)
+    for area in bpy.context.screen.areas:
+        if area.type == 'VIEW_3D':
+            for space in area.spaces:
+                if space.type == 'VIEW_3D':
+                    space.region_3d.view_perspective = 'CAMERA'
+            break
+
+    print(f"[camera] Ortho top-down at Z={camera.location.z:.1f}, ortho_scale={camera_data.ortho_scale:.1f}, scene {scene_w:.1f}x{scene_h:.1f} m")
+
+
+
+def setup_clay_material():
+    """Create and apply a uniform clay material override on all view layers.
+    Mimics the KeyShot look: all objects rendered as light-grey diffuse (#DEDEDE).
+    """
+    scene = bpy.context.scene
+    name = "KS_Clay"
+    clay = bpy.data.materials.get(name)
+    if not clay:
+        clay = bpy.data.materials.new(name)
+    clay.use_nodes = True
+    nt = clay.node_tree
+    nt.nodes.clear()
+
+    out  = nt.nodes.new('ShaderNodeOutputMaterial')
+    diff = nt.nodes.new('ShaderNodeBsdfDiffuse')
+    diff.inputs['Color'].default_value     = (0.87, 0.87, 0.87, 1.0)  # ~#DEDEDE
+    diff.inputs['Roughness'].default_value = 1.0
+    nt.links.new(diff.outputs['BSDF'], out.inputs['Surface'])
+
+    for vl in scene.view_layers:
+        vl.material_override = clay
+
+    print("[render] Clay material override applied to all view layers")
 
 
 def setup_render():
     """Configure Cycles render settings to match the KeyShot reference output:
-    3840x2004 @ 300 dpi, PNG+alpha, 512 samples, Gaussian filter 1.5 px, GPU.
+    3840x2160 (4K), PNG+alpha, 512 samples, Gaussian filter 1.5 px, GPU.
+    Clay material override + Filmic color management included.
     """
     scene = bpy.context.scene
 
@@ -1408,27 +1463,47 @@ def setup_render():
     scene.render.engine = 'CYCLES'
     scene.cycles.device = 'GPU'
 
-    # Resolution  (3840 x 2004, 300 dpi)
+    # Resolution — true 4K
     scene.render.resolution_x = 3840
-    scene.render.resolution_y = 2004
+    scene.render.resolution_y = 2160
     scene.render.resolution_percentage = 100
 
     # Output format — PNG with alpha channel
     scene.render.image_settings.file_format = 'PNG'
     scene.render.image_settings.color_mode = 'RGBA'
-    scene.render.image_settings.compression = 15   # light lossless compression
+    scene.render.image_settings.color_depth = '16'
+    scene.render.image_settings.compression = 15
 
     # Samples
     scene.cycles.samples = 512
     scene.cycles.use_adaptive_sampling = False
 
+    # Denoiser (OIDN — CPU/GPU universal)
+    scene.cycles.use_denoising = True
+    try:
+        scene.cycles.denoiser = 'OPENIMAGEDENOISE'
+    except Exception:
+        pass
+
     # Pixel filter (Gaussian 1.5 px — matches KeyShot pixel filter size 1.5)
     scene.cycles.pixel_filter_type = 'GAUSSIAN'
     scene.cycles.filter_width = 1.5
 
-    # Transparent background so the PNG alpha channel is meaningful
+    # Transparent background
     scene.render.film_transparent = True
     scene.cycles.film_transparent_glass = True
+
+    # Color management — Filmic, slight contrast lift (matches KeyShot tone)
+    scene.view_settings.view_transform = 'Filmic'
+    try:
+        scene.view_settings.look = 'Medium Contrast'
+    except TypeError:
+        pass
+    scene.view_settings.exposure = 0.0
+    scene.view_settings.gamma    = 1.0
+
+    # Clay material override
+    setup_clay_material()
 
     # Switch the viewport shading to Rendered
     for area in bpy.context.screen.areas:
@@ -1437,9 +1512,8 @@ def setup_render():
                 if space.type == 'VIEW_3D':
                     space.shading.type = 'RENDERED'
 
+    print("[render] Cycles render settings applied: 3840x2160 4K, 512 samples, clay override, Filmic")
 
-    print("[render] Cycles render settings applied: 3840x2004, 512 samples, Gaussian 1.5")
-    
 
 def render_scene(resolution_x, resolution_y):
     """Render the scene to a PNG file.
@@ -1579,9 +1653,16 @@ def organize_collections():
                 assets_collection.children.link(collection)
 
 
-   
+
 
 def reduce_scale():
+    #set Origin → Origin to Geometry
+    print("[reduce_scale] Set Origin to Geometry")
+    for obj in bpy.context.selected_objects:
+        if obj.type == 'MESH':
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='MEDIAN')    
+
     # Store names — Bonsai may rebuild mesh objects after origin_set,
     # making Python references stale. Look objects up fresh by name in loop 2.
     selected_names = [obj.name for obj in bpy.context.selected_objects if obj.type == 'MESH']
@@ -1632,4 +1713,3 @@ def reduce_scale():
             obj.select_set(True)
     if prev_active:
         bpy.context.view_layer.objects.active = prev_active
-         

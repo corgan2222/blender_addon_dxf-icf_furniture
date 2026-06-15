@@ -22,7 +22,7 @@ if "bpy" in locals():
     properties = reload(properties)
     preferences = reload(preferences)
     ui = reload(ui)
-    #esec_dxf_ifc_TI_helper = reload(esec_dxf_ifc_TI_helper)
+    esec_dxf_ifc_TI_helper = reload(esec_dxf_ifc_TI_helper)
     esec_archiologic_importer = reload(esec_archiologic_importer)
     esec_sensor_plan_pro = reload(esec_sensor_plan_pro)
 else:
@@ -32,7 +32,8 @@ else:
     from . import ui    
     from . import esec_archiologic_importer
     from . import esec_sensor_plan_pro
-    #from . import esec_dxf_ifc_TI_helper
+    from . import esec_dxf_ifc_TI_helper
+from . import keyshot_render
 
 def register():
     properties.register()
@@ -40,16 +41,18 @@ def register():
     ui.register()
     esec_archiologic_importer.register()
     esec_sensor_plan_pro.register()
-    #esec_dxf_ifc_TI_helper.register()
+    esec_dxf_ifc_TI_helper.register()
 
+    keyshot_render.register()
 def unregister():
     properties.unregister()
     preferences.unregister()    
     esec_archiologic_importer.unregister()
     esec_sensor_plan_pro.unregister()
-    #esec_dxf_ifc_TI_helper.unregister()
+    esec_dxf_ifc_TI_helper.unregister()
     ui.unregister()
 
+    keyshot_render.unregister()
 if __name__ == '__main__':
     register()
 

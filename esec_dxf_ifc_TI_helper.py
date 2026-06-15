@@ -2,7 +2,7 @@ bl_info = {
     "name": "ESEC ICF-TI Helper",
     "author": "stefan.knaak@e-shelter.io",
     "version": (2, 1),
-    "blender": (2, 80, 0),
+    "blender": (5, 1, 0),
     "location": "View3D > Sidebar > ESEC Tab",
     "description": "Rename IFC Space based on DXF roomnames",
     "warning": "",
@@ -14,67 +14,181 @@ import bpy
 import re
 import mathutils
 import os
-try:
-    import bonsai.tool as tool
-    from bonsai.bim.ifc import IfcStore
-except ModuleNotFoundError:
-    try:
-        import blenderbim.tool as tool
-        from blenderbim.bim.ifc import IfcStore
-    except ModuleNotFoundError:
-        tool = None
-        IfcStore = None
+from bpy_extras.io_utils import ImportHelper
+
+
+def _resolve_ifc_file():
+    """Resolve the loaded IFC file via whichever BIM addon is active (Bonsai or BlenderBIM).
+    Walks sys.modules instead of importing bonsai at addon-load time, which is fragile
+    across addon load order and the bonsai/blenderbim rename. Returns None if no IFC loaded.
+    """
+    import sys
+    import types
+    for key, mod in sys.modules.items():
+        if isinstance(mod, types.ModuleType) and key.endswith('.bim.ifc') and hasattr(mod, 'IfcStore'):
+            return mod.IfcStore.get_file()
+    return None
+
 
 def rename_spaces_by_longname():
-    # Define the longnames to look for and their corresponding new names
     print("rename_spaces_by_longname")
-    longname_dict = {
-        'staircase': 'Staircase',
-        'elevator': 'Elevator',
-        'shaft': 'Shaft',
-    }
 
-    file = IfcStore.get_file()
-    elements = file.by_type('IfcSpace')
+    file = _resolve_ifc_file()
+    if not file:
+        print("[rename_spaces_by_longname] No IFC file loaded, skipping.")
+        return
 
-    for e in elements:
-        longname = e.LongName
-        # Check if the space's LongName is one of the ones we're looking for
-        if longname and longname.lower() in longname_dict:
-                                
-            # Extract the number part of the name
-            number_part = e.Name.split('_')[-1]
-            # Create the new name with the new name from the dictionary and the number part
-            new_name = '{}_{}'.format(longname_dict[longname.lower()], number_part)
-            # Assign the new name to the space
-            old_space_name = e.Name
-            
-            for obj in bpy.data.objects:
-                    # Make sure the object is an IfcSpace                    
-                    old_name = obj.name.split('/')[-1]  # Get the last part of the name after '/'
-                    # Check if the name follows the expected format
-                    if old_name.startswith('Space_'):                                        
-                        if old_name == old_space_name :            
-                            print("rename " + old_name + " to " + new_name)
-                            obj.name = obj.name.replace(old_name, new_name)
-                                                                
+    counters = {}
 
-def rename_spaces():
     for obj in bpy.data.objects:
-        # Make sure the object is an IfcSpace
-        if "IfcSpace" in obj.name:
-            # Get the existing name
-            old_name = obj.name.split('/')[-1]  # Get the last part of the name after '/'
-            # Check if the name follows the expected format
-            if old_name.startswith('Space_'):
-                # Extract the number part of the name
-                number_part = old_name.split('_')[1]
-                # Create the new name with leading zeros
-                new_name = 'Space_{:03}'.format(int(number_part))
-                # Assign the new name to the space
-                print("rename " + old_name + " to " + new_name)
-                obj.name = obj.name.replace(old_name, new_name)
-  
+        if "IfcSpace" not in obj.name:
+            continue
+
+        bim_props = getattr(obj, 'BIMObjectProperties', None)
+        ifc_id = getattr(bim_props, 'ifc_definition_id', 0)
+        if not ifc_id:
+            continue
+
+        element = file.by_id(ifc_id)
+        if not element:
+            continue
+
+        longname = getattr(element, 'LongName', None)
+        print(f"[longname] {longname} ")
+        if not longname:
+            continue
+
+        # Derive the object name straight from the IFC LongName, so new room
+        # types work without maintaining a lookup table. Strip anything that is
+        # not alphanumeric to keep the name a clean single token.
+        type_name = re.sub(r'[^A-Za-z0-9]', '', longname)
+        if not type_name:
+            continue
+
+        counters[type_name] = counters.get(type_name, 0) + 1
+        new_name = '{}_{:03}'.format(type_name, counters[type_name])
+        print("rename " + obj.name + " to " + new_name)
+        # Persist into the IFC entity, otherwise Bonsai resyncs the object
+        # name back to the original IFC Name on the next refresh.
+        element.Name = new_name
+        obj.name = new_name
+
+
+# Export order for Thing-IT. Thing-IT shows spaces in IFC file order (the
+# RelatedObjects order of the storey aggregation), not alphabetically, so we
+# sort that list here. Front types first, then any unlisted type, then back
+# types. Compared lowercased against LongName.
+SPACE_ORDER_FRONT = [
+    'meetingroom',
+    'privateoffice',
+    'enclosedworkspace',
+    'openworkspace',
+    'focusroom',
+]
+
+SPACE_ORDER_BACK = [
+    'generic',
+    'restroom',
+    'operationalroom',
+    'cafe',
+    'foyer',
+    'printstation',
+    'storage',
+    'corridor',
+    'elevator',
+    'staircase',
+]
+
+
+def _space_sort_key(space, id_to_obj):
+    type_key = (getattr(space, 'LongName', None) or '').strip().lower()
+
+    if type_key in SPACE_ORDER_FRONT:
+        group, rank = 0, SPACE_ORDER_FRONT.index(type_key)
+    elif type_key in SPACE_ORDER_BACK:
+        group, rank = 2, SPACE_ORDER_BACK.index(type_key)
+    else:
+        group, rank = 1, 0
+
+    obj = id_to_obj.get(space.id())
+    name = obj.name if obj else (space.Name or '')
+    match = re.search(r'(\d+)', name)
+    number = int(match.group(1)) if match else 0
+    return (group, rank, type_key, number, name)
+
+
+def sort_spaces_for_export():
+    print("sort_spaces_for_export")
+    file = _resolve_ifc_file()
+    if not file:
+        print("[sort_spaces_for_export] No IFC file loaded, skipping.")
+        return
+
+    id_to_obj = {}
+    for obj in bpy.data.objects:
+        bim_props = getattr(obj, 'BIMObjectProperties', None)
+        ifc_id = getattr(bim_props, 'ifc_definition_id', 0)
+        if ifc_id:
+            id_to_obj[ifc_id] = obj
+
+    # Bonsai exports one IfcRelAggregates per space, so a storey owns many
+    # single-space relationships and Thing-IT renders them in that order.
+    # Merge each storey's space aggregations into one relationship whose
+    # RelatedObjects list is sorted, and drop the now redundant relationships.
+    from collections import defaultdict
+    by_storey = defaultdict(list)
+    for rel in file.by_type('IfcRelAggregates'):
+        relating = rel.RelatingObject
+        if not relating or not relating.is_a('IfcBuildingStorey'):
+            continue
+        related = rel.RelatedObjects
+        if related and all(o.is_a('IfcSpace') for o in related):
+            by_storey[relating.id()].append(rel)
+
+    for storey_id, rels in by_storey.items():
+        spaces = []
+        for rel in rels:
+            spaces.extend(rel.RelatedObjects)
+        if len(spaces) < 2:
+            continue
+
+        spaces.sort(key=lambda s: _space_sort_key(s, id_to_obj))
+
+        keep = rels[0]
+        keep.RelatedObjects = tuple(spaces)
+        for rel in rels[1:]:
+            file.remove(rel)
+
+        print("[sort_spaces_for_export] merged {} rels into 1, {} spaces under storey #{}".format(
+            len(rels), len(spaces), storey_id))
+
+
+DXF_IMPORT_COLLECTION = 'dxf_import'
+
+
+def find_layer_collection(layer_collection, name):
+    if layer_collection.collection.name == name:
+        return layer_collection
+    for child in layer_collection.children:
+        found = find_layer_collection(child, name)
+        if found:
+            return found
+    return None
+
+
+def get_or_create_dxf_import_collection():
+    col = bpy.data.collections.get(DXF_IMPORT_COLLECTION)
+    if not col:
+        col = bpy.data.collections.new(DXF_IMPORT_COLLECTION)
+        bpy.context.scene.collection.children.link(col)
+    return col
+
+
+def set_active_collection(col):
+    layer_col = find_layer_collection(bpy.context.view_layer.layer_collection, col.name)
+    if layer_col:
+        bpy.context.view_layer.active_layer_collection = layer_col
+
 
 def move_objects_to_new_collection():
     # Create or get the 'dxf' collection
@@ -94,16 +208,18 @@ def move_objects_to_new_collection():
         dxf_building = bpy.data.collections.new('dxf_building')
         dxf_collection.children.link(dxf_building)
 
-    # Get all objects in the current scene root collection
-    all_objects = list(bpy.context.scene.collection.objects)
+    # Read the imported objects from the dedicated import collection.
+    # Fall back to the scene root for files imported the old way.
+    source = bpy.data.collections.get(DXF_IMPORT_COLLECTION) or bpy.context.scene.collection
+    all_objects = list(source.objects)
 
     for obj in all_objects:
         # Skip collection instances
         if obj.type == 'EMPTY' and obj.instance_collection:
             continue
 
-        # Unlink from the root collection
-        bpy.context.scene.collection.objects.unlink(obj)
+        # Unlink from the source collection
+        source.objects.unlink(obj)
 
         # Link to appropriate subcollection
         if obj.type == 'FONT':
@@ -124,20 +240,16 @@ def delete_unwanted_text_objects_from_dxf():
         print("'dxf_text' collection does not exist.")
         return
 
-    # Deselect all objects
-    bpy.ops.object.select_all(action='DESELECT')
-
-    # Loop over all objects in the 'dxf_text' collection
-    for obj in dxf_text_collection.objects:
-        # Check if the object is a text object
-        if obj.type == 'FONT':
-            # If the object's text does not contain any of the specified strings, select it
-            if not any(s in obj.data.body for s in strings_to_keep):
-                print("delete " + obj.name)
-                obj.select_set(True)
-
-    # Delete all selected objects at once
-    bpy.ops.object.delete()
+    # Collect text objects whose body contains none of the strings to keep.
+    # bpy.data.objects.remove() is context-independent; bpy.ops.object.delete()
+    # needs a correct operator context override that we cannot guarantee here.
+    to_delete = [
+        obj for obj in dxf_text_collection.objects
+        if obj.type == 'FONT' and not any(s in obj.data.body for s in strings_to_keep)
+    ]
+    for obj in to_delete:
+        print("delete " + obj.name)
+        bpy.data.objects.remove(obj, do_unlink=True)
 
     
 #######################################################
@@ -167,6 +279,10 @@ def get_bounding_box(obj):
     bbox_max = [max(obj.bound_box[i][j] for i in range(8)) for j in range(3)]
     return bbox_min, bbox_max
 
+def space_world_center(obj):
+    local_center = sum((mathutils.Vector(c) for c in obj.bound_box), mathutils.Vector()) / 8.0
+    return obj.matrix_world @ local_center
+
 def is_text_inside_space(text_obj, space_obj):
     text_pos = text_obj.matrix_world.translation
     bbox_corners = [mathutils.Vector(corner) for corner in space_obj.bound_box]
@@ -180,14 +296,16 @@ def is_text_inside_space(text_obj, space_obj):
 
 def print_spaces_and_texts():
     space_replacements = {}
-    ifc_project_none = bpy.data.collections.get('IfcProject/None')
 
-    if ifc_project_none is None:
-        print("IfcProject/None collection not found.")
-        return
-
+    # Collect IfcSpace objects anywhere in the scene. Bonsai changed the
+    # collection layout (no fixed 'IfcProject/None'); collect_spaces filters
+    # on 'IfcSpace' in the object name, so the source name no longer matters.
     space_objects = []
-    collect_spaces(ifc_project_none, space_objects)
+    collect_spaces(bpy.context.scene.collection, space_objects)
+
+    if not space_objects:
+        print("No IfcSpace objects found in the scene.")
+        return
 
     text_objects = []
     collect_text_objects(bpy.context.scene.collection, text_objects)
@@ -200,28 +318,24 @@ def print_spaces_and_texts():
     total_texts_found = 0
 
     for space in sorted_space_objects:
-        bbox_min, bbox_max = get_bounding_box(space)
-        x_length = bbox_max[0] - bbox_min[0]
-        y_length = bbox_max[1] - bbox_min[1]
-        size = x_length * y_length
+        space_center = space_world_center(space)
 
-        #space_output = f"{space.name} - X length: {x_length:.2f}, Y length: {y_length:.2f}, Size: {size:.2f}"
-        space_output = f"{space.name} - "
-
-        texts_found = 0
-        matching_text = ""
-
+        # Collect every matching text inside the space, keep the one nearest
+        # the space center. Rooms often hold several labels (number, area,
+        # name); requiring exactly one missed most of them.
+        candidates = []
         for text_obj in text_objects:
             cleaned_text = re.sub(r'[^A-Za-z0-9\s.]', '', text_obj.data.body.replace('\n', ' '))
-            cleaned_text = re.sub(r'\s{2,}', ' ', cleaned_text)  # Remove multiple consecutive whitespaces
+            cleaned_text = re.sub(r'\s{2,}', ' ', cleaned_text).strip()
 
             if any(keyword in cleaned_text for keyword in keywords) and is_text_inside_space(text_obj, space):
-                texts_found += 1
-                matching_text = cleaned_text
+                dist = (text_obj.matrix_world.translation - space_center).length
+                candidates.append((dist, cleaned_text))
 
-        if texts_found == 1:
-            space_output += f"{matching_text}"
-            print(space_output)
+        if candidates:
+            candidates.sort(key=lambda c: c[0])
+            matching_text = candidates[0][1]
+            print(f"{space.name} - {matching_text}")
             total_texts_found += 1
             space_replacements[space.name] = matching_text
 
@@ -238,36 +352,28 @@ def print_spaces_and_texts():
     return space_replacements
 
 def replace_space_names_in_ifc(space_replacements):
-    
-    #space_replacements
+    # Keys are full Blender object names (e.g. "IfcSpace/focusRoom_001").
+    file = _resolve_ifc_file()
     for space_name, new_space_name in space_replacements.items():
-        space_name_without_prefix = space_name.replace("IfcSpace/", "")
-        #print(f"found {space_name_without_prefix} - {new_space_name}")
-        
-        #ifc
-        for obj in bpy.data.objects:
-            # Make sure the object is an IfcSpace                    
-            old_name = obj.name.split('/')[-1]  # Get the last part of the name after '/'
-            # Check if the name follows the expected format
-            if old_name.startswith('Space_'):                                        
-                if old_name == space_name_without_prefix :            
-                    print("rename " + old_name + " to " + new_space_name)
-                    obj.name = obj.name.replace(old_name, new_space_name)    
+        obj = bpy.data.objects.get(space_name)
+        if obj is None:
+            continue
+        # Persist into the IFC entity so the name survives a Bonsai resync
+        # and reaches the export.
+        if file:
+            bim_props = getattr(obj, 'BIMObjectProperties', None)
+            ifc_id = getattr(bim_props, 'ifc_definition_id', 0)
+            if ifc_id:
+                element = file.by_id(ifc_id)
+                if element:
+                    element.Name = new_space_name
+        prefix = obj.name.rsplit('/', 1)[0] + '/' if '/' in obj.name else ''
+        new_full = prefix + new_space_name
+        print("rename " + obj.name + " to " + new_full)
+        obj.name = new_full
     
 
 #########################################################
-bpy.types.Scene.esec_dry_run = bpy.props.BoolProperty(
-    name="Dry Run (check system console)",
-    description="Enable Dry Run (check system console)",
-    default = True
-)
-
-# Define a string property on the scene
-bpy.types.Scene.esec_strings_to_keep = bpy.props.StringProperty(
-    name="Strings to keep",
-    description="Enter strings to keep, separated by commas",
-    default = 'A., B., C., D., E., F., G.'
-)
 
 class ESEC_OT_ImportIFC(bpy.types.Operator):
     bl_idname = "esec.import_ifc"
@@ -287,7 +393,13 @@ class ESEC_OT_ImportDXF(bpy.types.Operator):
     bl_description = "Import DXF file"
 
     def execute(self, context):
-        bpy.ops.import_scene.dxf('INVOKE_DEFAULT')
+        col = get_or_create_dxf_import_collection()
+        set_active_collection(col)
+        try:
+            bpy.ops.import_scene.dxf('INVOKE_DEFAULT')
+        except (AttributeError, RuntimeError):
+            self.report({'ERROR'}, "DXF import not available. Enable 'Import-Export: AutoCAD DXF' in Edit > Preferences > Add-ons.")
+            return {'CANCELLED'}
         return {'FINISHED'}
 
 class ESEC_OT_RenameSpacesByLongname(bpy.types.Operator):
@@ -297,7 +409,7 @@ class ESEC_OT_RenameSpacesByLongname(bpy.types.Operator):
 
     def execute(self, context):
         rename_spaces_by_longname()
-        rename_spaces()
+        sort_spaces_for_export()
         return {'FINISHED'}
 
 class ESEC_OT_PrepareDXF(bpy.types.Operator):
@@ -319,6 +431,31 @@ class ESEC_OT_RenameSpaces(bpy.types.Operator):
 
     def execute(self, context):
         print_spaces_and_texts()
+        return {'FINISHED'}
+
+
+class ESEC_OT_SortIFCFile(bpy.types.Operator, ImportHelper):
+    bl_idname = "esec.sort_ifc_file"
+    bl_label = "Sort exported IFC"
+    bl_description = (
+        "Pick an exported IFC. Reorders the IfcSpace entities by type "
+        "(meetingRoom first ... staircase last) and writes a copy as <name>_sorted.ifc"
+    )
+    filename_ext = ".ifc"
+    filter_glob: bpy.props.StringProperty(default="*.ifc", options={'HIDDEN'})
+
+    def execute(self, context):
+        from . import sort_ifc_spaces
+        path = self.filepath
+        if not path or not path.lower().endswith(".ifc"):
+            self.report({'ERROR'}, "Please select an .ifc file.")
+            return {'CANCELLED'}
+        try:
+            out_path = sort_ifc_spaces.main(path)
+        except Exception as e:
+            self.report({'ERROR'}, "Sort failed: %s" % e)
+            return {'CANCELLED'}
+        self.report({'INFO'}, "Sorted IFC written: %s" % os.path.basename(out_path))
         return {'FINISHED'}
 
 
@@ -353,27 +490,43 @@ class ESEC_PT_MainPanel(bpy.types.Panel):
         layout.operator("esec.rename_spaces", icon="SNAP_VERTEX")
         layout.prop(context.scene, "esec_dry_run")
         layout.separator()
-        layout.label(text="Export with IFC Save as")      
+        layout.label(text="Export with IFC Save as")
+        layout.separator()
+        layout.operator("esec.sort_ifc_file", icon="SORTALPHA")
 
 
 def register():
+    bpy.types.Scene.esec_dry_run = bpy.props.BoolProperty(
+        name="Dry Run (check system console)",
+        description="Enable Dry Run (check system console)",
+        default=True,
+    )
+    bpy.types.Scene.esec_strings_to_keep = bpy.props.StringProperty(
+        name="Strings to keep",
+        description="Enter strings to keep, separated by commas",
+        default='A., B., C., D., E., F., G.',
+    )
+
     bpy.utils.register_class(ESEC_OT_ImportIFC)
     bpy.utils.register_class(ESEC_OT_ImportDXF)
     bpy.utils.register_class(ESEC_OT_RenameSpacesByLongname)
     bpy.utils.register_class(ESEC_OT_PrepareDXF)
     bpy.utils.register_class(ESEC_OT_RenameSpaces)
+    bpy.utils.register_class(ESEC_OT_SortIFCFile)
     bpy.utils.register_class(ESEC_PT_MainPanel)
 
 
- 
-
 def unregister():
     bpy.utils.unregister_class(ESEC_PT_MainPanel)
+    bpy.utils.unregister_class(ESEC_OT_SortIFCFile)
     bpy.utils.unregister_class(ESEC_OT_RenameSpaces)
     bpy.utils.unregister_class(ESEC_OT_PrepareDXF)
     bpy.utils.unregister_class(ESEC_OT_RenameSpacesByLongname)
     bpy.utils.unregister_class(ESEC_OT_ImportDXF)
     bpy.utils.unregister_class(ESEC_OT_ImportIFC)
+
+    del bpy.types.Scene.esec_strings_to_keep
+    del bpy.types.Scene.esec_dry_run
 
     
 
